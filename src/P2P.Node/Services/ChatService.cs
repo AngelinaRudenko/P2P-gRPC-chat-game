@@ -9,9 +9,8 @@ namespace P2P.Node.Services
         {
             Task.Run(() =>
             {
+                // TODO: that's bad, find other solution
                 Console.WriteLine($"Previous player said '{request.Text}'");
-                Console.WriteLine("Your turn, rephrase the text:");
-                var currentPlayerText = Console.ReadLine();
             });
 
             return Task.FromResult(new ChatResponse { IsOk = true });

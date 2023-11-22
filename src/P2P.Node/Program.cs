@@ -1,4 +1,5 @@
 ﻿using Grpc.Core;
+using Grpc.Net.Client;
 using Proto;
 using ChatService = P2P.Node.Services.ChatService;
 
@@ -10,7 +11,7 @@ namespace P2P.Node
 
         static async Task Main(string[] args)
         {
-            Task.Run(async () =>
+            var thread = new Thread(() =>
             {
                 Server? server = null;
 
@@ -27,7 +28,11 @@ namespace P2P.Node
 
                     server.Start();
                     Console.WriteLine($"Server is listening on port {Port}");
-                    Console.ReadKey();
+                    while (true)
+                    {
+                        // TODO: that's very bad, make it more beautiful
+                    }
+                    //Console.ReadKey();
                 }
                 catch (IOException e)
                 {
@@ -36,29 +41,36 @@ namespace P2P.Node
                 }
                 finally
                 {
-                    if (server != null)
-                    {
-                        await server.ShutdownAsync();
-                    }
+                    Console.WriteLine($"Server shutdown");
+                    server?.ShutdownAsync().Wait();
                 }
-            });
 
-            var channel = new Channel("127.0.0.1:50051", ChannelCredentials.Insecure);
+                // TODO: stop
+            });
+            thread.IsBackground = true;
+            thread.Start();
+
+            //var channel = new Channel("127.0.0.1:50051", ChannelCredentials.Insecure);
+            var channel = GrpcChannel.ForAddress("http://localhost:50051", 
+                new GrpcChannelOptions{ Credentials = ChannelCredentials.Insecure });
 
             await channel.ConnectAsync().ContinueWith((task) =>
             {
                 if (task.Status == TaskStatus.RanToCompletion)
                 {
-                    Console.WriteLine("Client successfully connected to server");
+                    Console.WriteLine("You successfully connected to server");
                 }
             });
 
+            var input = string.Empty;
+            while (input != "/q")
+            {
+                input = Console.ReadLine();
 
-            var client = new Proto.ChatService.ChatServiceClient(channel);
-            var result = await client.ChatAsync(new ChatRequest { Text = "Hello World" });
-            Console.WriteLine(result.IsOk);
-
-            Console.ReadKey();
+                var client = new Proto.ChatService.ChatServiceClient(channel);
+                var result = await client.ChatAsync(new ChatRequest { Text = input });
+                Console.WriteLine(result.IsOk);
+            }
         }
     }
 }
