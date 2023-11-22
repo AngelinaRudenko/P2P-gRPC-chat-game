@@ -11,44 +11,8 @@ namespace P2P.Node
 
         static async Task Main(string[] args)
         {
-            var thread = new Thread(() =>
-            {
-                Server? server = null;
-
-                try
-                {
-                    server = new Server
-                    {
-                        Services =
-                        {
-                            Proto.ChatService.BindService(new ChatService())
-                        },
-                        Ports = { new ServerPort("localhost", Port, ServerCredentials.Insecure) }
-                    };
-
-                    server.Start();
-                    Console.WriteLine($"Server is listening on port {Port}");
-                    while (true)
-                    {
-                        // TODO: that's very bad, make it more beautiful
-                    }
-                    //Console.ReadKey();
-                }
-                catch (IOException e)
-                {
-                    Console.WriteLine($"Server failed to start: {e.Message}");
-                    throw;
-                }
-                finally
-                {
-                    Console.WriteLine($"Server shutdown");
-                    server?.ShutdownAsync().Wait();
-                }
-
-                // TODO: stop
-            });
-            thread.IsBackground = true;
-            thread.Start();
+            var chatServer = new ChatServer(Port);
+            await chatServer.Start();
 
             //var channel = new Channel("127.0.0.1:50051", ChannelCredentials.Insecure);
             var channel = GrpcChannel.ForAddress("http://localhost:50051", 
@@ -71,6 +35,8 @@ namespace P2P.Node
                 var result = await client.ChatAsync(new ChatRequest { Text = input });
                 Console.WriteLine(result.IsOk);
             }
+
+            await chatServer.Stop();
         }
     }
 }
