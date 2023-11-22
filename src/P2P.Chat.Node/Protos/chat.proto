@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+option csharp_namespace = "Proto";
+
+package chat;
+
+message ChatRequest {
+	string text = 1;
+}
+
+message ChatResponse {
+	bool isOk = 1;
+}
+
+service ChatService {
+	// Unary
+	rpc Chat (ChatRequest) returns (ChatResponse) {}
+}
