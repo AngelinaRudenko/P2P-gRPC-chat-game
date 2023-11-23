@@ -6,10 +6,12 @@ namespace P2P.Node;
 public class ChatServer
 {
     private Server? _server;
+    private readonly string _host;
     private readonly int _port;
 
-    public ChatServer(int port)
+    public ChatServer(string host, int port)
     {
+        _host = host;
         _port = port;
     }
 
@@ -21,13 +23,14 @@ public class ChatServer
             {
                 Services =
                 {
-                    Proto.ChatService.BindService(new ChatService())
+                    Proto.ChatService.BindService(new ChatService()),
+                    Proto.ChainService.BindService(new ChainService())
                 },
-                Ports = { new ServerPort("localhost", _port, ServerCredentials.Insecure) }
+                Ports = { new ServerPort(_host, _port, ServerCredentials.Insecure) }
             };
 
             _server.Start();
-            Console.WriteLine($"Server is listening on port {_port}");
+            Console.WriteLine($"Server is listening on port {_host}:{_port}");
         }
         catch (IOException e)
         {
@@ -41,6 +44,7 @@ public class ChatServer
     {
         if (_server != null)
         {
+            Console.WriteLine($"Server shutdown");
             await _server.ShutdownAsync();
         }
     }

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option csharp_namespace = "Proto";
+
+package chain;
+
+message ConnectToNodeRequest {
+	string host = 1;
+	int32 port = 2;
+}
+
+message ConnectToNodeResponse {
+	bool isConnected = 1;
+}
+
+service ChainService {
+	// Unary
+	rpc AskPermissionToConnect (ConnectToNodeRequest) returns (ConnectToNodeResponse) {}
+}
