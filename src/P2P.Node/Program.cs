@@ -45,17 +45,27 @@ namespace P2P.Node
                 channel = GrpcChannel.ForAddress($"http://{nextNode.Host}:{nextNode.Port}",
                     new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-                //await channel.ConnectAsync().ContinueWith((task) =>
-                //{
-                //    if (task.Status == TaskStatus.RanToCompletion)
-                //    {
-                //        Console.WriteLine("You successfully connected to server");
-                //    }
+                var isAlive = await channel.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(1)).ContinueWith(task =>
+                {
+                    if (task.Status == TaskStatus.RanToCompletion)
+                    {
+                        Console.WriteLine($"Node {nextNodeId} http://{nextNode.Host}:{nextNode.Port} is alive");
+                        return true;
+                    }
+                    else
+                    {
+                        // Faulted
+                        Console.WriteLine($"Node {nextNodeId} http://{nextNode.Host}:{nextNode.Port} is not alive");
+                        return false;
+                    }
+                });
 
-                //    Console.WriteLine(task.Status);
-                //});
+                if (!isAlive)
+                {
+                    continue;
+                }
 
-                var client = new Proto.ChainService.ChainServiceClient(channel);
+                var client = new ChainService.ChainServiceClient(channel);
 
                 try
                 {
@@ -75,7 +85,7 @@ namespace P2P.Node
             {
                 input = Console.ReadLine();
 
-                var client = new Proto.ChatService.ChatServiceClient(channel!);
+                var client = new ChatService.ChatServiceClient(channel!);
                 var result = await client.ChatAsync(new ChatRequest { Text = input });
                 Console.WriteLine(result.IsOk);
             }
