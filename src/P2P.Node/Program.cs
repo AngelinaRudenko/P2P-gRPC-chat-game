@@ -32,7 +32,9 @@ namespace P2P.Node
 
             chatServer.OnDisconnectRequest += chatClient.Disconnect;
 
-          
+            while (true)
+            {
+            }
 
             await chatServer.Stop();
         }
