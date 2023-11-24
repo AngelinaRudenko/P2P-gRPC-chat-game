@@ -5,7 +5,7 @@ namespace P2P.Node.Server;
 
 public class ChatServer
 {
-    private Server? _server;
+    private Grpc.Core.Server? _server;
     private readonly string _host;
     private readonly int _port;
 
@@ -29,7 +29,7 @@ public class ChatServer
             var chainService = new ChainService();
             chainService.OnDisconnectRequest += InvokeDisconnect;
 
-            _server = new Server
+            _server = new Grpc.Core.Server
             {
                 Services =
                 {

@@ -57,18 +57,7 @@ internal class ChatClientService
     private static async Task<bool> IsAlive(GrpcChannel channel)
     {
         var isAlive = await channel.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(1))
-            .ContinueWith(task =>
-            {
-                if (task.Status == TaskStatus.RanToCompletion)
-                {
-                    return true;
-                }
-                else
-                {
-                    // Faulted
-                    return false;
-                }
-            });
+            .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
 
         return isAlive;
     }
