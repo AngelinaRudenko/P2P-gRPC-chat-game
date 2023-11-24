@@ -27,7 +27,7 @@ internal class ChatClientService
     {
         await EstablishConnection();
 
-        _isNextNodeAliveTimer.Change(Timeout.InfiniteTimeSpan, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
+        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
 
         //var input = string.Empty;
         //while (input != "/q")
@@ -92,8 +92,8 @@ internal class ChatClientService
 
             if (nextNodeId == _currentNodeId)
             {
-                Console.WriteLine("Couldn't connect to any node. Sleep for 30 sec");
-                await Task.Delay(30000);
+                Console.WriteLine("Couldn't connect to any node. Sleep for 10 sec");
+                await Task.Delay(10000);
                 continue;
             }
 
