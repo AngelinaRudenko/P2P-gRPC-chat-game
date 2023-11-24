@@ -15,11 +15,11 @@ namespace P2P.Node.Services
             var canConnect = _previousNode == null;
             if (canConnect)
             {
-                Console.WriteLine($"Node {request.NodeWantsToConnect.Id} asks for permission to connect. Deny, {_previousNode?.Id} already connected");
+                Console.WriteLine($"Node {request.NodeWantsToConnect.Id} asks for permission to connect. Allow");
             }
             else
             {
-                Console.WriteLine($"Node {request.NodeWantsToConnect.Id} asks for permission to connect. Allow");
+                Console.WriteLine($"Node {request.NodeWantsToConnect.Id} asks for permission to connect. Deny, {_previousNode?.Id} already connected");
             }
             return Task.FromResult(new AskPermissionToConnectResponse { CanConnect = canConnect, ConnectedNode = _previousNode });
         }
