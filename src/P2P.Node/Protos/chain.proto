@@ -4,16 +4,44 @@ option csharp_namespace = "Proto";
 
 package chain;
 
-message ConnectToNodeRequest {
-	string host = 1;
-	int32 port = 2;
+message Node {
+	int32 id = 1;
+	string host = 2;
+	int32 port = 3;
 }
 
-message ConnectToNodeResponse {
-	bool isConnected = 1;
+message AskPermissionToConnectRequest {
+	Node nodeWantsToConnect = 1; // node that requests to connect
+}
+
+message AskPermissionToConnectResponse {
+	bool canConnect = 1; // true if requesting node can connect, false if other node already connected
+	Node connectedNode = 2; // node that connected to requested node
+}
+
+message AskToDisconnectRequest {
+	Node nodeAsksToDiconnect = 1;
+}
+
+message AskToDisconnectResponse {
+	bool isOk = 1;
+}
+
+message ConnectRequest {
+	Node nodeWantsToConnect = 1;
+}
+
+message ConnectResponse {
+	bool isOk = 1;
 }
 
 service ChainService {
-	// Unary
-	rpc AskPermissionToConnect (ConnectToNodeRequest) returns (ConnectToNodeResponse) {}
+
+	// Ask permission to connect to node
+	rpc AskPermissionToConnect (AskPermissionToConnectRequest) returns (AskPermissionToConnectResponse) {}
+
+	// Ask node to disconnect from the node requesting node wants to connect
+	rpc AskToDisconnect (AskToDisconnectRequest) returns (AskToDisconnectResponse) {}
+
+	rpc Connect (ConnectRequest) returns (ConnectResponse) {}
 }
