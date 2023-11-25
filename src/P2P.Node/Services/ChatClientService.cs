@@ -1,4 +1,5 @@
-﻿using Grpc.Core;
+﻿using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Grpc.Net.Client;
 using P2P.Node.Models;
 using Proto;
@@ -7,7 +8,8 @@ namespace P2P.Node.Services;
 
 internal class ChatClientService : IDisposable
 {
-    private readonly Proto.Node _currentNode;
+    private readonly DateTime _startTimestamp;
+    private readonly int _currentNodeId;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
 
@@ -15,12 +17,8 @@ internal class ChatClientService : IDisposable
 
     public ChatClientService(int nodeId, NodeSettings[] nodes)
     {
-        _currentNode = new Proto.Node
-        {
-            Id = nodeId,
-            Host = nodes[nodeId].Host,
-            Port = nodes[nodeId].Port
-        };
+        _startTimestamp = DateTime.UtcNow;
+        _currentNodeId = nodeId;
         _nodes = nodes;
 
         _isNextNodeAliveTimer = new Timer(IsNextNodeAlive, null, Timeout.Infinite, Timeout.Infinite);
@@ -78,12 +76,12 @@ internal class ChatClientService : IDisposable
 
     private async Task EstablishConnectionAsync()
     {
-        var nextNodeId = _currentNode.Id;
+        var nextNodeId = _currentNodeId;
         while (true)
         {
             nextNodeId = GetNextNodeId(nextNodeId, _nodes.Length);
 
-            if (nextNodeId == _currentNode.Id)
+            if (nextNodeId == _currentNodeId)
             {
                 ConsoleHelper.Debug("Couldn't connect to any node. Sleep for 10 sec");
                 await Task.Delay(TimeSpan.FromSeconds(10));
@@ -107,13 +105,13 @@ internal class ChatClientService : IDisposable
                 var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
 
                 var askPermissionResult = await nextNodeClient.AskPermissionToConnectAsync(
-                    new AskPermissionToConnectRequest { NodeWantsToConnect = _currentNode },
+                    new AskPermissionToConnectRequest { NodeWantsToConnectId = _currentNodeId },
                     deadline: DateTime.UtcNow.AddSeconds(1));
 
                 if (!askPermissionResult.CanConnect)
                 {
                     var previousNodeChannel = GrpcChannel.ForAddress(
-                        _nodes[askPermissionResult.ConnectedNode.Id].ToString(),
+                        _nodes[askPermissionResult.ConnectedNodeId].ToString(),
                         new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
                     if (await IsAliveAsync(previousNodeChannel))
@@ -121,7 +119,7 @@ internal class ChatClientService : IDisposable
                         var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
 
                         var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
-                            new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode },
+                            new AskToDisconnectRequest { NodeAsksToDiconnectId = _currentNodeId },
                             deadline: DateTime.UtcNow.AddSeconds(1));
 
                         if (!askToDisconnectResult.IsOk)
@@ -134,7 +132,7 @@ internal class ChatClientService : IDisposable
                 }
 
                 var connectResult = await nextNodeClient.ConnectAsync(
-                    new ConnectRequest { NodeWantsToConnect = _currentNode },
+                    new ConnectRequest { NodeWantsToConnectId = _currentNodeId },
                     deadline: DateTime.UtcNow.AddSeconds(1));
 
                 if (!connectResult.IsOk)
@@ -154,15 +152,34 @@ internal class ChatClientService : IDisposable
             }
         }
 
-        ElectLeader(Guid.NewGuid().ToString(), _currentNode.Id);
+        ElectLeader(Guid.NewGuid().ToString(), _currentNodeId, _startTimestamp);
     }
 
-    public void ElectLeader(string electionLoopId, int leaderId)
+    public void ElectLeader(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
     {
         var client = new ChainService.ChainServiceClient(_nextNodeChannel);
-        client.ElectLeaderAsync(new LeaderElectionRequest
-            { ElectionLoopId = electionLoopId, LeaderId = int.Max(leaderId, _currentNode.Id) },
-            deadline: DateTime.UtcNow.AddSeconds(1)); // do not wait
+
+        LeaderElectionRequest args;
+        if (leaderConnectionTimestamp < _startTimestamp) // node started earlier than current node
+        {
+            args = new LeaderElectionRequest
+            {
+                ElectionLoopId = electionLoopId,
+                LeaderId = leaderId,
+                LeaderConnectionTimestamp = Timestamp.FromDateTime(leaderConnectionTimestamp)
+            };
+        }
+        else // current node started earlier than node
+        {
+            args = new LeaderElectionRequest
+            {
+                ElectionLoopId = electionLoopId,
+                LeaderId = _currentNodeId,
+                LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
+            };
+        }
+
+        client.ElectLeaderAsync(args, deadline: DateTime.UtcNow.AddSeconds(1)); // do not wait
     }
 
     public void Disconnect()

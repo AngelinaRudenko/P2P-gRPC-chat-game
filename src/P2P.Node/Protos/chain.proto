@@ -1,26 +1,22 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 option csharp_namespace = "Proto";
 
 package chain;
 
-message Node {
-	int32 id = 1;
-	string host = 2;
-	int32 port = 3;
-}
-
 message AskPermissionToConnectRequest {
-	Node nodeWantsToConnect = 1; // node that requests to connect
+	int32 nodeWantsToConnectId = 1; // node that requests to connect
 }
 
 message AskPermissionToConnectResponse {
 	bool canConnect = 1; // true if requesting node can connect, false if other node already connected
-	Node connectedNode = 2; // node that connected to requested node
+	int32 connectedNodeId = 2; // node that connected to requested node
 }
 
 message AskToDisconnectRequest {
-	Node nodeAsksToDiconnect = 1;
+	int32 nodeAsksToDiconnectId = 1;
 }
 
 message AskToDisconnectResponse {
@@ -28,7 +24,7 @@ message AskToDisconnectResponse {
 }
 
 message ConnectRequest {
-	Node nodeWantsToConnect = 1;
+	int32 nodeWantsToConnectId = 1;
 }
 
 message ConnectResponse {
@@ -38,6 +34,7 @@ message ConnectResponse {
 message LeaderElectionRequest {
 	int32 leaderId = 1;
 	string electionLoopId = 2;
+	google.protobuf.Timestamp leaderConnectionTimestamp = 3;
 }
 
 message LeaderElectionResponse {

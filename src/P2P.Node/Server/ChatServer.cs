@@ -22,9 +22,9 @@ internal class ChatServer
         OnDisconnectRequest?.Invoke();
     }
 
-    private void InvokeLeaderElection(string electionLoopId, int leaderId)
+    private void InvokeLeaderElection(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
     {
-        OnLeaderElectionRequest?.Invoke(electionLoopId, leaderId);
+        OnLeaderElectionRequest?.Invoke(electionLoopId, leaderId, leaderConnectionTimestamp);
     }
 
     public async Task StartAsync()
