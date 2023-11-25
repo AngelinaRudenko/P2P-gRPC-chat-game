@@ -110,31 +110,34 @@ internal class ChatClientService : IDisposable
                     new AskPermissionToConnectRequest { NodeWantsToConnect = _currentNode },
                     deadline: DateTime.UtcNow.AddSeconds(1));
 
-                if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
-                {
-                    ConsoleHelper.WriteRed($"Current node was already connected to node {nextNodeId}");
-                    _nextNodeChannel = nextNodeChannel;
-                    break;
-                }
-
                 if (!askPermissionResult.CanConnect)
                 {
+                    if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
+                    {
+                        ConsoleHelper.WriteRed($"Current node was already connected to node {nextNodeId}");
+                        _nextNodeChannel = nextNodeChannel;
+                        break;
+                    }
+
                     var previousNodeChannel = GrpcChannel.ForAddress(
                         _nodes[askPermissionResult.ConnectedNode.Id].ToString(),
                         new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-                    var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
+                    if (await IsAliveAsync(previousNodeChannel))
+                    {
+                        var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
 
-                    var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
-                        new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode },
-                        deadline: DateTime.UtcNow.AddSeconds(1));
+                        var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
+                            new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode },
+                            deadline: DateTime.UtcNow.AddSeconds(1));
+
+                        if (!askToDisconnectResult.IsOk)
+                        {
+                            throw new Exception("Node doesn't agree to disconnect");
+                        }
+                    } 
 
                     await previousNodeChannel.ShutdownAsync();
-
-                    if (!askToDisconnectResult.IsOk)
-                    {
-                        throw new Exception("Node doesn't agree to disconnect");
-                    }
                 }
 
                 var connectResult = await nextNodeClient.ConnectAsync(
