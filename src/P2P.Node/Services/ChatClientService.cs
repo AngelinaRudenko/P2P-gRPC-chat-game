@@ -50,8 +50,14 @@ internal class ChatClientService
     {
         if (_nextNodeChannel == null || !IsAlive(_nextNodeChannel).Result)
         {
+            _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+            Console.ForegroundColor = ConsoleColor.DarkGreen;
             Console.WriteLine("Reconnect");
+            Console.ResetColor();
             EstablishConnection().Wait();
+
+            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
         }
     }
     private static async Task<bool> IsAlive(GrpcChannel channel)
@@ -143,7 +149,9 @@ internal class ChatClientService
 
                 await Connect(nextNodeChannel);
 
+                Console.ForegroundColor = ConsoleColor.DarkGreen;
                 Console.WriteLine($"Connected to node {nextNodeId} http://{nextNode.Host}:{nextNode.Port}");
+                Console.ResetColor();
 
                 _nextNodeChannel = nextNodeChannel;
                 break;
@@ -178,6 +186,6 @@ internal class ChatClientService
     public void Disconnect()
     {
         // TODO
-        _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        _nextNodeChannel = null; // is alive timer will re-establish connection
     }
 }

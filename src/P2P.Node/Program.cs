@@ -22,6 +22,8 @@ namespace P2P.Node
             var settings = config.GetRequiredSection(nameof(Settings)).Get<Settings>() ??
                            throw new Exception("Configuration couldn't load");
 
+            Console.WriteLine($"Node {settings.CurrentNodeId}");
+
             var currentNode = settings.NodesSettings[settings.CurrentNodeId];
 
             var chatServer = new ChatServer(currentNode.Host, currentNode.Port);
