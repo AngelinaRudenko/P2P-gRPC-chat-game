@@ -22,7 +22,7 @@ public class ChatServer
         OnDisconnectRequest?.Invoke();
     }
 
-    public async Task Start()
+    public async Task StartAsync()
     {
         try
         {
@@ -40,21 +40,21 @@ public class ChatServer
             };
 
             _server.Start();
-            Console.WriteLine($"Server is listening on port {_host}:{_port}");
+            ConsoleHelper.Debug($"Server is listening on port {_host}:{_port}");
         }
         catch (IOException e)
         {
-            Console.WriteLine($"Server failed to start: {e.Message}");
-            await Stop();
+            ConsoleHelper.WriteRed($"Server failed to start: {e.Message}");
+            await StopAsync();
             throw;
         }
     }
 
-    public async Task Stop()
+    public async Task StopAsync()
     {
         if (_server != null)
         {
-            Console.WriteLine($"Server shutdown");
+            ConsoleHelper.Debug("Server shutdown");
             await _server.ShutdownAsync();
         }
     }

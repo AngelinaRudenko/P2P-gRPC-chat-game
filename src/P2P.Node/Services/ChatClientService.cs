@@ -7,25 +7,28 @@ namespace P2P.Node.Services;
 
 internal class ChatClientService
 {
-    private readonly int _currentNodeId;
-    private readonly NodeSettings _currentNode;
+    private readonly Proto.Node _currentNode;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
 
     private readonly Timer _isNextNodeAliveTimer;
 
-    public ChatClientService(int nodeId, NodeSettings node, NodeSettings[] nodes)
+    public ChatClientService(int nodeId, NodeSettings[] nodes)
     {
-        _currentNodeId = nodeId;
-        _currentNode = node;
+        _currentNode = new Proto.Node
+        {
+            Id = nodeId,
+            Host = nodes[nodeId].Host,
+            Port = nodes[nodeId].Port
+        };
         _nodes = nodes;
 
         _isNextNodeAliveTimer = new Timer(IsNextNodeAlive, null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public async Task Start()
+    public async Task StartAsync()
     {
-        await EstablishConnection();
+        await EstablishConnectionAsync();
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
 
@@ -48,94 +51,69 @@ internal class ChatClientService
 
     private void IsNextNodeAlive(object? stateInfo)
     {
-        if (_nextNodeChannel == null || !IsAlive(_nextNodeChannel).Result)
+        if (_nextNodeChannel == null || !IsAliveAsync(_nextNodeChannel).Result)
         {
             _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
-            Console.ForegroundColor = ConsoleColor.DarkGreen;
-            Console.WriteLine("Reconnect");
-            Console.ResetColor();
-            EstablishConnection().Wait();
+            ConsoleHelper.Debug("Reconnect");
+            EstablishConnectionAsync().Wait();
 
             _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
         }
     }
-    private static async Task<bool> IsAlive(GrpcChannel channel)
+    private static async Task<bool> IsAliveAsync(GrpcChannel channel)
     {
-        var isAlive = await channel.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(1))
-            .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
-
-        return isAlive;
-    }
-
-    private async Task AskNodeToDisconnect(GrpcChannel channel)
-    {
-        var client = new Proto.ChainService.ChainServiceClient(channel);
-
-        var result = await client.AskToDisconnectAsync(
-            new AskToDisconnectRequest
-            {
-                NodeAsksToDiconnect = new Proto.Node
-                {
-                    Id = _currentNodeId,
-                    Host = _currentNode.Host,
-                    Port = _currentNode.Port
-                }
-            }, deadline: DateTime.UtcNow.AddSeconds(3));
-
-        if (!result.IsOk)
+        try
         {
-            // TODO: retry
+            var isAlive = await channel.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(0.5))
+                .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
+
+            return isAlive;
+        }
+        catch
+        {
+            return false;
         }
     }
 
-    private async Task EstablishConnection()
+    private async Task EstablishConnectionAsync()
     {
-        var nextNodeId = _currentNodeId;
+        var nextNodeId = _currentNode.Id;
         while (true)
         {
             nextNodeId = GetNextNodeId(nextNodeId, _nodes.Length);
 
-            if (nextNodeId == _currentNodeId)
+            if (nextNodeId == _currentNode.Id)
             {
-                Console.WriteLine("Couldn't connect to any node. Sleep for 10 sec");
-                await Task.Delay(10000);
+                ConsoleHelper.Debug("Couldn't connect to any node. Sleep for 10 sec");
+                await Task.Delay(TimeSpan.FromSeconds(10));
                 continue;
             }
 
-            var nextNode = _nodes[nextNodeId];
-
-            var nextNodeChannel = GrpcChannel.ForAddress($"http://{nextNode.Host}:{nextNode.Port}",
+            var nextNodeChannel = GrpcChannel.ForAddress($"http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}",
                 new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-            if (!await IsAlive(nextNodeChannel))
+            if (!await IsAliveAsync(nextNodeChannel))
             {
-                Console.WriteLine($"Node {nextNodeId} http://{nextNode.Host}:{nextNode.Port} is not alive");
+                ConsoleHelper.Debug($"Node {nextNodeId} is not alive");
                 continue;
             }
 
-            Console.WriteLine($"Node {nextNodeId} http://{nextNode.Host}:{nextNode.Port} is alive");
+            ConsoleHelper.Debug($"Node {nextNodeId} is alive");
 
             try
             {
-                var client = new Proto.ChainService.ChainServiceClient(nextNodeChannel);
+                var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
 
-                var askPermissionResult = await client.AskPermissionToConnectAsync(
-                    new AskPermissionToConnectRequest
-                    {
-                        NodeWantsToConnect = new Proto.Node
-                        {
-                            Id = _currentNodeId,
-                            Host = _currentNode.Host,
-                            Port = _currentNode.Port
-                        }
-                    }, deadline: DateTime.UtcNow.AddSeconds(1));
+                var askPermissionResult = await nextNodeClient.AskPermissionToConnectAsync(
+                    new AskPermissionToConnectRequest { NodeWantsToConnect = _currentNode },
+                    deadline: DateTime.UtcNow.AddSeconds(1));
 
                 if (!askPermissionResult.CanConnect)
                 {
-                    if (askPermissionResult.ConnectedNode.Id == _currentNodeId)
+                    if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
                     {
-                        Console.WriteLine($"Node was already connected to node {nextNodeId}");
+                        ConsoleHelper.Debug($"Current node was already connected to node {nextNodeId}");
                         _nextNodeChannel = nextNodeChannel;
                         break;
                     }
@@ -144,48 +122,43 @@ internal class ChatClientService
                         $"http://{askPermissionResult.ConnectedNode.Host}:{askPermissionResult.ConnectedNode.Port}",
                         new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-                    await AskNodeToDisconnect(previousNodeChannel);
+                    var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
+
+                    var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
+                        new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode }, 
+                        deadline: DateTime.UtcNow.AddSeconds(1));
+
+                    if (!askToDisconnectResult.IsOk)
+                    {
+                        throw new Exception("Node doesn't agree to disconnect");
+                    }
                 }
 
-                await Connect(nextNodeChannel);
+                var connectResult = await nextNodeClient.ConnectAsync(
+                    new ConnectRequest { NodeWantsToConnect = _currentNode },
+                    deadline: DateTime.UtcNow.AddSeconds(1));
 
-                Console.ForegroundColor = ConsoleColor.DarkGreen;
-                Console.WriteLine($"Connected to node {nextNodeId} http://{nextNode.Host}:{nextNode.Port}");
-                Console.ResetColor();
+                if (!connectResult.IsOk)
+                {
+                    throw new Exception($"Failed to connect to node {nextNodeId}");
+                }
+
+                ConsoleHelper.WriteGreen($"Connected to node {nextNodeId} http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}");
 
                 _nextNodeChannel = nextNodeChannel;
                 break;
             }
-            catch (RpcException ex)
+            catch
             {
-                Console.WriteLine($"Failed ot connect to node {nextNodeId} http://{nextNode.Host}:{nextNode.Port}");
+                ConsoleHelper.WriteRed($"Failed ot connect to node {nextNodeId} http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}");
             }
-        }
-    }
-
-    private async Task Connect(GrpcChannel channel)
-    {
-        var client = new Proto.ChainService.ChainServiceClient(channel);
-
-        var connectResult = await client.ConnectAsync(new ConnectRequest
-        {
-            NodeWantsToConnect = new Proto.Node
-            {
-                Id = _currentNodeId,
-                Host = _currentNode.Host,
-                Port = _currentNode.Port
-            }
-        }, deadline: DateTime.UtcNow.AddSeconds(3));
-
-        if (!connectResult.IsOk)
-        {
-            // TODO: retry
         }
     }
 
     public void Disconnect()
     {
-        // TODO
-        _nextNodeChannel = null; // is alive timer will re-establish connection
+        ConsoleHelper.WriteRed("Disconnect");
+        _nextNodeChannel = null;
+        IsNextNodeAlive(null); // re-establish connection
     }
 }

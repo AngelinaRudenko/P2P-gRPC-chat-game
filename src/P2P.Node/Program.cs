@@ -1,10 +1,7 @@
-﻿using Grpc.Core;
-using Grpc.Net.Client;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using P2P.Node.Models;
 using P2P.Node.Server;
 using P2P.Node.Services;
-using Proto;
 
 namespace P2P.Node
 {
@@ -27,10 +24,10 @@ namespace P2P.Node
             var currentNode = settings.NodesSettings[settings.CurrentNodeId];
 
             var chatServer = new ChatServer(currentNode.Host, currentNode.Port);
-            await chatServer.Start();
+            await chatServer.StartAsync();
 
-            var chatClient = new ChatClientService(settings.CurrentNodeId, currentNode, settings.NodesSettings);
-            await chatClient.Start();
+            var chatClient = new ChatClientService(settings.CurrentNodeId, settings.NodesSettings);
+            await chatClient.StartAsync();
 
             chatServer.OnDisconnectRequest += chatClient.Disconnect;
 
@@ -38,7 +35,7 @@ namespace P2P.Node
             {
             }
 
-            await chatServer.Stop();
+            await chatServer.StopAsync();
         }
     }
 }
