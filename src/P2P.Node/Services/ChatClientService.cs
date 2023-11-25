@@ -12,14 +12,16 @@ internal class ChatClientService : IDisposable
     private readonly int _currentNodeId;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
+    private readonly Server.ChainService _chainService;
 
     private readonly Timer _isNextNodeAliveTimer;
 
-    public ChatClientService(int nodeId, NodeSettings[] nodes)
+    public ChatClientService(int nodeId, NodeSettings[] nodes, Server.ChainService chainService)
     {
         _startTimestamp = DateTime.UtcNow;
         _currentNodeId = nodeId;
         _nodes = nodes;
+        _chainService = chainService;
 
         _isNextNodeAliveTimer = new Timer(IsNextNodeAlive, null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -27,6 +29,9 @@ internal class ChatClientService : IDisposable
     public async Task StartAsync()
     {
         await EstablishConnectionAsync();
+
+        _chainService.OnDisconnectRequest += Disconnect;
+        _chainService.OnLeaderElectionRequest += ElectLeader;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
 
@@ -184,7 +189,7 @@ internal class ChatClientService : IDisposable
 
     public void Disconnect()
     {
-        ConsoleHelper.WriteRed("Disconnect");
+        ConsoleHelper.WriteRed("Disconnect from next node");
         _nextNodeChannel?.ShutdownAsync().Wait();
         _nextNodeChannel = null;
         IsNextNodeAlive(null); // re-establish connection

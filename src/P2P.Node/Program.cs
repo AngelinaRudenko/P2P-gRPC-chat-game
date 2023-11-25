@@ -24,11 +24,8 @@ internal class Program
         var chatServer = new ChatServer(settings.NodesSettings[settings.CurrentNodeId]);
         await chatServer.StartAsync();
 
-        var chatClient = new ChatClientService(settings.CurrentNodeId, settings.NodesSettings);
+        var chatClient = new ChatClientService(settings.CurrentNodeId, settings.NodesSettings, chatServer.ChainService);
         await chatClient.StartAsync();
-
-        chatServer.OnDisconnectRequest += chatClient.Disconnect;
-        chatServer.OnLeaderElectionRequest += chatClient.ElectLeader;
 
         while (true)
         {

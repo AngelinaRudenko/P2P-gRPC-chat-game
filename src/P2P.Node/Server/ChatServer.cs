@@ -9,38 +9,26 @@ internal class ChatServer
     private Grpc.Core.Server? _server;
     private readonly NodeSettings _node;
 
-    public event Action? OnDisconnectRequest;
-    public event LeaderElectionHandler? OnLeaderElectionRequest;
-
     public ChatServer(NodeSettings node)
     {
         _node = node;
+        ChainService = new ChainService();
+        ChatService = new ChatService();
     }
 
-    private void InvokeDisconnect()
-    {
-        OnDisconnectRequest?.Invoke();
-    }
-
-    private void InvokeLeaderElection(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
-    {
-        OnLeaderElectionRequest?.Invoke(electionLoopId, leaderId, leaderConnectionTimestamp);
-    }
+    public ChainService ChainService { get; }
+    public ChatService ChatService { get; }
 
     public async Task StartAsync()
     {
         try
         {
-            var chainService = new ChainService();
-            chainService.OnDisconnectRequest += InvokeDisconnect;
-            chainService.OnLeaderElectionRequest += InvokeLeaderElection;
-
             _server = new Grpc.Core.Server
             {
                 Services =
                 {
-                    Proto.ChatService.BindService(new ChatService()),
-                    Proto.ChainService.BindService(chainService)
+                    Proto.ChatService.BindService(ChatService),
+                    Proto.ChainService.BindService(ChainService)
                 },
                 Ports = { new ServerPort(_node.Host, _node.Port, ServerCredentials.Insecure) }
             };
