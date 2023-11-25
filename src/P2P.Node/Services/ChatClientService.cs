@@ -112,13 +112,6 @@ internal class ChatClientService : IDisposable
 
                 if (!askPermissionResult.CanConnect)
                 {
-                    if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
-                    {
-                        ConsoleHelper.WriteRed($"Current node was already connected to node {nextNodeId}");
-                        _nextNodeChannel = nextNodeChannel;
-                        break;
-                    }
-
                     var previousNodeChannel = GrpcChannel.ForAddress(
                         _nodes[askPermissionResult.ConnectedNode.Id].ToString(),
                         new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
@@ -160,6 +153,16 @@ internal class ChatClientService : IDisposable
                 ConsoleHelper.WriteRed($"Failed ot connect to node {nextNodeId} http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}");
             }
         }
+
+        ElectLeader(Guid.NewGuid().ToString(), _currentNode.Id);
+    }
+
+    public void ElectLeader(string electionLoopId, int leaderId)
+    {
+        var client = new ChainService.ChainServiceClient(_nextNodeChannel);
+        client.ElectLeaderAsync(new LeaderElectionRequest
+            { ElectionLoopId = electionLoopId, LeaderId = int.Max(leaderId, _currentNode.Id) },
+            deadline: DateTime.UtcNow.AddSeconds(1)); // do not wait
     }
 
     public void Disconnect()

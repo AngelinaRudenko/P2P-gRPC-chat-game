@@ -35,6 +35,15 @@ message ConnectResponse {
 	bool isOk = 1;
 }
 
+message LeaderElectionRequest {
+	int32 leaderId = 1;
+	string electionLoopId = 2;
+}
+
+message LeaderElectionResponse {
+	bool isOk = 1;
+}
+
 service ChainService {
 
 	// Ask permission to connect to node
@@ -44,4 +53,6 @@ service ChainService {
 	rpc AskToDisconnect (AskToDisconnectRequest) returns (AskToDisconnectResponse) {}
 
 	rpc Connect (ConnectRequest) returns (ConnectResponse) {}
+
+	rpc ElectLeader (LeaderElectionRequest) returns (LeaderElectionResponse) {}
 }

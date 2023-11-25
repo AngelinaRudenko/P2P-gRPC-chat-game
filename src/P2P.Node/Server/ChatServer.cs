@@ -1,5 +1,6 @@
 ﻿using Grpc.Core;
 using P2P.Node.Models;
+using static P2P.Node.Server.ChainService;
 
 namespace P2P.Node.Server;
 
@@ -9,6 +10,7 @@ internal class ChatServer
     private readonly NodeSettings _node;
 
     public event Action? OnDisconnectRequest;
+    public event LeaderElectionHandler? OnLeaderElectionRequest;
 
     public ChatServer(NodeSettings node)
     {
@@ -20,12 +22,18 @@ internal class ChatServer
         OnDisconnectRequest?.Invoke();
     }
 
+    private void InvokeLeaderElection(string electionLoopId, int leaderId)
+    {
+        OnLeaderElectionRequest?.Invoke(electionLoopId, leaderId);
+    }
+
     public async Task StartAsync()
     {
         try
         {
             var chainService = new ChainService();
             chainService.OnDisconnectRequest += InvokeDisconnect;
+            chainService.OnLeaderElectionRequest += InvokeLeaderElection;
 
             _server = new Grpc.Core.Server
             {

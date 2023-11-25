@@ -28,6 +28,7 @@ internal class Program
         await chatClient.StartAsync();
 
         chatServer.OnDisconnectRequest += chatClient.Disconnect;
+        chatServer.OnLeaderElectionRequest += chatClient.ElectLeader;
 
         while (true)
         {
