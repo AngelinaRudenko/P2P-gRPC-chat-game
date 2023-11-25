@@ -5,7 +5,7 @@ using Proto;
 
 namespace P2P.Node.Services;
 
-internal class ChatClientService
+internal class ChatClientService : IDisposable
 {
     private readonly Proto.Node _currentNode;
     private readonly NodeSettings[] _nodes;
@@ -90,7 +90,8 @@ internal class ChatClientService
                 continue;
             }
 
-            var nextNodeChannel = GrpcChannel.ForAddress($"http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}",
+            var nextNodeChannel = GrpcChannel.ForAddress(
+                _nodes[nextNodeId].ToString(),
                 new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
             if (!await IsAliveAsync(nextNodeChannel))
@@ -109,24 +110,26 @@ internal class ChatClientService
                     new AskPermissionToConnectRequest { NodeWantsToConnect = _currentNode },
                     deadline: DateTime.UtcNow.AddSeconds(1));
 
+                if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
+                {
+                    ConsoleHelper.WriteRed($"Current node was already connected to node {nextNodeId}");
+                    _nextNodeChannel = nextNodeChannel;
+                    break;
+                }
+
                 if (!askPermissionResult.CanConnect)
                 {
-                    if (askPermissionResult.ConnectedNode.Id == _currentNode.Id)
-                    {
-                        ConsoleHelper.Debug($"Current node was already connected to node {nextNodeId}");
-                        _nextNodeChannel = nextNodeChannel;
-                        break;
-                    }
-
                     var previousNodeChannel = GrpcChannel.ForAddress(
-                        $"http://{askPermissionResult.ConnectedNode.Host}:{askPermissionResult.ConnectedNode.Port}",
+                        _nodes[askPermissionResult.ConnectedNode.Id].ToString(),
                         new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
                     var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
 
                     var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
-                        new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode }, 
+                        new AskToDisconnectRequest { NodeAsksToDiconnect = _currentNode },
                         deadline: DateTime.UtcNow.AddSeconds(1));
+
+                    await previousNodeChannel.ShutdownAsync();
 
                     if (!askToDisconnectResult.IsOk)
                     {
@@ -150,6 +153,7 @@ internal class ChatClientService
             }
             catch
             {
+                await nextNodeChannel.ShutdownAsync();
                 ConsoleHelper.WriteRed($"Failed ot connect to node {nextNodeId} http://{_nodes[nextNodeId].Host}:{_nodes[nextNodeId].Port}");
             }
         }
@@ -158,7 +162,15 @@ internal class ChatClientService
     public void Disconnect()
     {
         ConsoleHelper.WriteRed("Disconnect");
+        _nextNodeChannel?.ShutdownAsync().Wait();
         _nextNodeChannel = null;
         IsNextNodeAlive(null); // re-establish connection
+    }
+
+    public void Dispose()
+    {
+        _nextNodeChannel?.ShutdownAsync().Wait();
+        _nextNodeChannel?.Dispose();
+        _isNextNodeAliveTimer.Dispose();
     }
 }

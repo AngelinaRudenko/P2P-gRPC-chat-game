@@ -1,20 +1,18 @@
 ﻿using Grpc.Core;
-using P2P.Node.Services;
+using P2P.Node.Models;
 
 namespace P2P.Node.Server;
 
-public class ChatServer
+internal class ChatServer
 {
     private Grpc.Core.Server? _server;
-    private readonly string _host;
-    private readonly int _port;
+    private readonly NodeSettings _node;
 
     public event Action? OnDisconnectRequest;
 
-    public ChatServer(string host, int port)
+    public ChatServer(NodeSettings node)
     {
-        _host = host;
-        _port = port;
+        _node = node;
     }
 
     private void InvokeDisconnect()
@@ -36,11 +34,11 @@ public class ChatServer
                     Proto.ChatService.BindService(new ChatService()),
                     Proto.ChainService.BindService(chainService)
                 },
-                Ports = { new ServerPort(_host, _port, ServerCredentials.Insecure) }
+                Ports = { new ServerPort(_node.Host, _node.Port, ServerCredentials.Insecure) }
             };
 
             _server.Start();
-            ConsoleHelper.Debug($"Server is listening on port {_host}:{_port}");
+            ConsoleHelper.Debug($"Server is listening on {_node}");
         }
         catch (IOException e)
         {
