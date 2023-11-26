@@ -6,7 +6,8 @@ package chat;
 
 message ChatRequest {
 	string chatId = 1;
-	string text = 2;
+	string message = 2;
+	string messageChain = 3;
 }
 
 message ChatResponse {

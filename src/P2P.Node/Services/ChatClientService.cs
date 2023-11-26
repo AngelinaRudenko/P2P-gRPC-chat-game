@@ -2,7 +2,6 @@
 using Grpc.Core;
 using Grpc.Net.Client;
 using P2P.Node.Models;
-using P2P.Node.Server;
 using Proto;
 
 namespace P2P.Node.Services;
@@ -33,10 +32,11 @@ internal class ChatClientService : IDisposable
     {
         await EstablishConnectionAsync();
 
-        _chainService.OnDisconnectRequest += Disconnect;
+        _chainService.OnDisconnect += Disconnect;
         _chainService.OnLeaderElectionRequest += ElectLeader;
         _chainService.OnLeaderElected += StartChat;
-        _chatService.OnChatRequest += Chat;
+        _chatService.OnChat += Chat;
+        _chatService.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
     }
@@ -197,17 +197,48 @@ internal class ChatClientService : IDisposable
 
         var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
-        client.ChatAsync(new ChatRequest { Text = input, ChatId = Guid.NewGuid().ToString() }, deadline: DateTime.UtcNow.AddSeconds(1));
+        client.ChatAsync(
+            new ChatRequest
+            {
+                ChatId = Guid.NewGuid().ToString(),
+                Message = input,
+                MessageChain = $"{_currentNodeId}: {input}"
+            }, 
+            deadline: DateTime.UtcNow.AddSeconds(1));
     }
 
-    public void Chat(string receivedMessage, string chatId)
+    public void Chat(string chatId, string receivedMessage, string messageChain)
     {
         Console.WriteLine($"Previous player said '{receivedMessage}'. Write message to next player:");
         var input = Console.ReadLine();
 
         var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
-        client.ChatAsync(new ChatRequest { Text = input, ChatId = chatId }, deadline: DateTime.UtcNow.AddSeconds(1));
+        client.ChatAsync(
+            new ChatRequest
+            {
+                ChatId = chatId,
+                Message = input, 
+                MessageChain = $"{messageChain}\n{_currentNodeId}: {input}"
+            },
+            deadline: DateTime.UtcNow.AddSeconds(1));
+    }
+
+    public void ChatResults(string chatId, string messageChain)
+    {
+        Console.WriteLine("Chat results:");
+        Console.WriteLine(messageChain);
+       
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        // do not wait
+        client.ChatAsync(
+            new ChatRequest
+            {
+                ChatId = chatId,
+                Message = string.Empty,
+                MessageChain = messageChain
+            },
+            deadline: DateTime.UtcNow.AddSeconds(1));
     }
 
     public void Disconnect()

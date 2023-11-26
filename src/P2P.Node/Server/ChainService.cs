@@ -12,7 +12,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     private string _electionLoopId = string.Empty;
     private bool _electionLoopInProgress;
 
-    public event Action? OnDisconnectRequest;
+    public event Action? OnDisconnect;
 
     public delegate void LeaderElectionHandler(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp);
     public event LeaderElectionHandler? OnLeaderElectionRequest;
@@ -29,7 +29,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public override Task<AskToDisconnectResponse> AskToDisconnect(AskToDisconnectRequest request, ServerCallContext context)
     {
-        OnDisconnectRequest?.Invoke();
+        OnDisconnect?.Invoke();
         ConsoleHelper.Debug($"Node {request.NodeAsksToDiconnectId} asked to disconnect, invoke disconnect");
         return Task.FromResult(new AskToDisconnectResponse { IsOk = true });
     }
