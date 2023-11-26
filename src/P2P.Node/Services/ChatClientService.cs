@@ -2,6 +2,7 @@
 using Grpc.Core;
 using Grpc.Net.Client;
 using P2P.Node.Models;
+using P2P.Node.Server;
 using Proto;
 
 namespace P2P.Node.Services;
@@ -13,15 +14,17 @@ internal class ChatClientService : IDisposable
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
     private readonly Server.ChainService _chainService;
+    private readonly Server.ChatService _chatService;
 
     private readonly Timer _isNextNodeAliveTimer;
 
-    public ChatClientService(int nodeId, NodeSettings[] nodes, Server.ChainService chainService)
+    public ChatClientService(int nodeId, NodeSettings[] nodes, Server.ChainService chainService, Server.ChatService chatService)
     {
         _startTimestamp = DateTime.UtcNow;
         _currentNodeId = nodeId;
         _nodes = nodes;
         _chainService = chainService;
+        _chatService = chatService;
 
         _isNextNodeAliveTimer = new Timer(IsNextNodeAlive, null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -32,18 +35,10 @@ internal class ChatClientService : IDisposable
 
         _chainService.OnDisconnectRequest += Disconnect;
         _chainService.OnLeaderElectionRequest += ElectLeader;
+        _chainService.OnLeaderElected += StartChat;
+        _chatService.OnChatRequest += Chat;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
-
-        //var input = string.Empty;
-        //while (input != "/q")
-        //{
-        //    input = Console.ReadLine();
-
-        //    var client = new Proto.ChatService.ChatServiceClient(channel!);
-        //    var result = await client.ChatAsync(new ChatRequest { Text = input });
-        //    Console.WriteLine(result.IsOk);
-        //}
     }
 
     private static int GetNextNodeId(int id, int nodesCount)
@@ -61,7 +56,7 @@ internal class ChatClientService : IDisposable
             ConsoleHelper.Debug("Reconnect");
             EstablishConnectionAsync().Wait();
 
-            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
+            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(1));
         }
     }
     private static async Task<bool> IsAliveAsync(GrpcChannel channel)
@@ -107,7 +102,7 @@ internal class ChatClientService : IDisposable
 
             try
             {
-                var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
+                var nextNodeClient = new Proto.ChainService.ChainServiceClient(nextNodeChannel);
 
                 var askPermissionResult = await nextNodeClient.AskPermissionToConnectAsync(
                     new AskPermissionToConnectRequest { NodeWantsToConnectId = _currentNodeId },
@@ -121,7 +116,7 @@ internal class ChatClientService : IDisposable
 
                     if (await IsAliveAsync(previousNodeChannel))
                     {
-                        var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
+                        var previousNodeClient = new Proto.ChainService.ChainServiceClient(previousNodeChannel);
 
                         var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
                             new AskToDisconnectRequest { NodeAsksToDiconnectId = _currentNodeId },
@@ -162,7 +157,7 @@ internal class ChatClientService : IDisposable
 
     public void ElectLeader(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
     {
-        var client = new ChainService.ChainServiceClient(_nextNodeChannel);
+        var client = new Proto.ChainService.ChainServiceClient(_nextNodeChannel);
 
         LeaderElectionRequest args;
         if (leaderConnectionTimestamp < _startTimestamp) // node started earlier than current node
@@ -185,6 +180,34 @@ internal class ChatClientService : IDisposable
         }
 
         client.ElectLeaderAsync(args, deadline: DateTime.UtcNow.AddSeconds(1)); // do not wait
+    }
+
+    public void StartChat()
+    {
+        _chainService.OnLeaderElected -= StartChat;
+
+        if (_chatService.ChatInProgress || _chainService.LeaderId != _currentNodeId)
+        {
+            Console.WriteLine("Game is in progress, wait for your turn");
+            return;
+        }
+
+        Console.WriteLine("Start new game, write the message for the next player");
+        var input = Console.ReadLine();
+
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        // do not wait
+        client.ChatAsync(new ChatRequest { Text = input, ChatId = Guid.NewGuid().ToString() }, deadline: DateTime.UtcNow.AddSeconds(1));
+    }
+
+    public void Chat(string receivedMessage, string chatId)
+    {
+        Console.WriteLine($"Previous player said '{receivedMessage}'. Write message to next player:");
+        var input = Console.ReadLine();
+
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        // do not wait
+        client.ChatAsync(new ChatRequest { Text = input, ChatId = chatId }, deadline: DateTime.UtcNow.AddSeconds(1));
     }
 
     public void Disconnect()

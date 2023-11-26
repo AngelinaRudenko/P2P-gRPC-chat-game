@@ -1,6 +1,5 @@
 ﻿using Grpc.Core;
 using P2P.Node.Models;
-using static P2P.Node.Server.ChainService;
 
 namespace P2P.Node.Server;
 

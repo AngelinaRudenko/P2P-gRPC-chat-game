@@ -8,6 +8,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     // TODO: make thread safe
     private int _previousNodeId = -1;
 
+    public int LeaderId { get; private set; } = -1;
     private string _electionLoopId = string.Empty;
     private bool _electionLoopInProgress;
 
@@ -15,6 +16,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public delegate void LeaderElectionHandler(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp);
     public event LeaderElectionHandler? OnLeaderElectionRequest;
+    public event Action? OnLeaderElected;
 
     public override Task<AskPermissionToConnectResponse> AskPermissionToConnect(AskPermissionToConnectRequest request, ServerCallContext context)
     {
@@ -52,7 +54,9 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         else if (_electionLoopInProgress)
         {
             // else - leader found, need to propagate
+            LeaderId = request.LeaderId;
             _electionLoopInProgress = false;
+            OnLeaderElected?.Invoke();
             ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderId}");
             OnLeaderElectionRequest?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
         }
