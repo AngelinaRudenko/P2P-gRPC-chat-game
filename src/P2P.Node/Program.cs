@@ -24,8 +24,7 @@ internal class Program
         var chatServer = new ChatServer(settings.NodesSettings[settings.CurrentNodeId]);
         await chatServer.StartAsync();
 
-        var chatClient = new ChatClientService(settings.CurrentNodeId, settings.NodesSettings, 
-            settings.TimeoutSettings, chatServer.ChainService, chatServer.ChatService);
+        var chatClient = new ChatClientService(settings, chatServer.ChainService, chatServer.ChatService);
         await chatClient.StartAsync();
 
         while (true)

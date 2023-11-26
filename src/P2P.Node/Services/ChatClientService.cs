@@ -35,10 +35,10 @@ internal class ChatClientService : IDisposable
         await EstablishConnectionAsync();
 
         _chainService.OnDisconnect += Disconnect;
-        _chainService.OnLeaderElectionRequest += ElectLeader;
-        //_chainService.OnLeaderElected += StartChat;
-        //_chatService.OnChat += Chat;
-        //_chatService.OnChatResults += ChatResults;
+        _chainService.OnLeaderElection += ElectLeader;
+        _chainService.OnLeaderElected += StartChat;
+        _chatService.OnChat += Chat;
+        _chatService.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
     }

@@ -23,8 +23,8 @@ internal class NodeSettings
 /// </summary>
 internal class TimeoutSettings
 {
-    public required int CommonRequestTimeout { get; set; }
-    public required int ReestablishConnectionPeriod { get; set; }
-    public required int IsAliveTimerPeriod { get; set; }
-    public required int IsAliveRequestTimeout { get; set; }
+    public required double CommonRequestTimeout { get; set; }
+    public required double ReestablishConnectionPeriod { get; set; }
+    public required double IsAliveTimerPeriod { get; set; }
+    public required double IsAliveRequestTimeout { get; set; }
 }

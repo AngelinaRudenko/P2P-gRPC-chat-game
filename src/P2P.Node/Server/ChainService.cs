@@ -15,7 +15,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     public event Action? OnDisconnect;
 
     public delegate void LeaderElectionHandler(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp);
-    public event LeaderElectionHandler? OnLeaderElectionRequest;
+    public event LeaderElectionHandler? OnLeaderElection;
     public event Action? OnLeaderElected;
 
     public override Task<AskPermissionToConnectResponse> AskPermissionToConnect(AskPermissionToConnectRequest request, ServerCallContext context)
@@ -45,20 +45,19 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     {
         if (_electionLoopId.Equals(request.ElectionLoopId, StringComparison.InvariantCulture) == false)
         {
-            // new election loop
+            ConsoleHelper.Debug($"Start election loop {request.ElectionLoopId}");
             _electionLoopInProgress = true;
             _electionLoopId = request.ElectionLoopId;
-            OnLeaderElectionRequest?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
-            ConsoleHelper.Debug($"Start updating loop {request.ElectionLoopId}");
+            OnLeaderElection?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
         }
         else if (_electionLoopInProgress)
         {
             // else - leader found, need to propagate
+            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderId}");
             LeaderId = request.LeaderId;
             _electionLoopInProgress = false;
             OnLeaderElected?.Invoke();
-            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderId}");
-            OnLeaderElectionRequest?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
+            OnLeaderElection?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });
