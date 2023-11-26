@@ -36,10 +36,11 @@ internal class ChatClientService : IDisposable
 
         _chainService.OnDisconnect += Disconnect;
         _chainService.OnLeaderElection += ElectLeader;
-        _chainService.OnLeaderElectionResult += StartChat;
         _chainService.OnLeaderElectionResult += PropagateElectedLeader;
-        _chatService.OnChat += Chat;
-        _chatService.OnChatResults += ChatResults;
+
+        //_chainService.OnLeaderElectionResult += StartChat;
+        //_chatService.OnChat += Chat;
+        //_chatService.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
     }
@@ -124,7 +125,7 @@ internal class ChatClientService : IDisposable
 
                         var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
                             new AskToDisconnectRequest { NodeAsksToDiconnectId = _currentNodeId },
-                            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+                            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.DisconnectRequestTimeout));
 
                         if (!askToDisconnectResult.IsOk)
                         {
