@@ -8,7 +8,7 @@ namespace P2P.Node.Services;
 
 internal class ChatClientService : IDisposable
 {
-    private readonly DateTime _startTimestamp;
+    private DateTime _startTimestamp;
     private readonly int _currentNodeId;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
@@ -38,9 +38,9 @@ internal class ChatClientService : IDisposable
         _chainService.OnLeaderElection += ElectLeader;
         _chainService.OnLeaderElectionResult += PropagateElectedLeader;
 
-        //_chainService.OnLeaderElectionResult += StartChat;
-        //_chatService.OnChat += Chat;
-        //_chatService.OnChatResults += ChatResults;
+        _chainService.OnLeaderElectionResult += StartChat;
+        _chatService.OnChat += Chat;
+        _chatService.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
     }
@@ -157,10 +157,15 @@ internal class ChatClientService : IDisposable
             }
         }
 
+        ElectLeader();
+    }
+
+    public void ElectLeader()
+    {
         ElectLeader(new LeaderElectionRequest
         {
             ElectionLoopId = Guid.NewGuid().ToString(),
-            LeaderId = _currentNodeId, 
+            LeaderId = _currentNodeId,
             LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
         });
     }
@@ -208,6 +213,7 @@ internal class ChatClientService : IDisposable
         client.ChatAsync(
             new ChatRequest
             {
+                StartedByNodeId = _currentNodeId,
                 ChatId = chatId,
                 Message = input,
                 MessageChain = $"{_currentNodeId}: {input}"
@@ -236,6 +242,14 @@ internal class ChatClientService : IDisposable
         var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+
+        _chainService.OnLeaderElectionResult += StartChat;
+
+        if (request.StartedByNodeId == _currentNodeId)
+        {
+            _startTimestamp = DateTime.UtcNow; // put to the end of the front
+            ElectLeader(); // next leader will be the one, who connected after the current leader
+        }
     }
 
     public void Disconnect()

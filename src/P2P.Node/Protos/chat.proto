@@ -5,9 +5,10 @@ option csharp_namespace = "Proto";
 package chat;
 
 message ChatRequest {
-	string chatId = 1;
-	string message = 2;
-	string messageChain = 3;
+	int32 startedByNodeId = 1;
+	string chatId = 2;
+	string message = 3;
+	string messageChain = 4;
 }
 
 message ChatResponse {
