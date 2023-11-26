@@ -194,6 +194,11 @@ internal class ChatClientService : IDisposable
             return;
         }
 
+        var chatId = Guid.NewGuid().ToString();
+
+        _chatService.ChatInProgress = true;
+        _chatService.ChatId = chatId;
+
         Console.WriteLine("Start new game, write the message for the next player");
         var input = Console.ReadLine();
 
@@ -202,7 +207,7 @@ internal class ChatClientService : IDisposable
         client.ChatAsync(
             new ChatRequest
             {
-                ChatId = Guid.NewGuid().ToString(),
+                ChatId = chatId,
                 Message = input,
                 MessageChain = $"{_currentNodeId}: {input}"
             }, 
