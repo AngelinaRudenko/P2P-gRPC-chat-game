@@ -8,10 +8,9 @@ internal class ChatService : Proto.ChatService.ChatServiceBase
     public bool ChatInProgress { get; private set; }
     private string _chatId = string.Empty;
 
-    public delegate void ChatHandler(string chatId, string receivedMessage, string messageChain);
+    public delegate void ChatHandler(ChatRequest request);
     public event ChatHandler? OnChat;
-    public delegate void ChatResultsHandler(string chatId, string messageChain);
-    public event ChatResultsHandler? OnChatResults;
+    public event ChatHandler? OnChatResults;
 
     public override Task<ChatResponse> Chat(ChatRequest request, ServerCallContext context)
     {
@@ -19,13 +18,13 @@ internal class ChatService : Proto.ChatService.ChatServiceBase
         {
             ChatInProgress = true;
             _chatId = request.ChatId;
-            OnChat?.Invoke(request.ChatId, request.Message,  request.MessageChain);
+            OnChat?.Invoke(request);
         }
         else if (ChatInProgress)
         {
             // chat loop finished, propagate results
             ChatInProgress = false;
-            OnChatResults?.Invoke(request.ChatId, request.MessageChain);
+            OnChatResults?.Invoke(request);
         }
         
         return Task.FromResult(new ChatResponse { IsOk = true });

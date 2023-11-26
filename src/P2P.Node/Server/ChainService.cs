@@ -14,9 +14,9 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public event Action? OnDisconnect;
 
-    public delegate void LeaderElectionHandler(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp);
+    public delegate void LeaderElectionHandler(LeaderElectionRequest request);
     public event LeaderElectionHandler? OnLeaderElection;
-    public event Action? OnLeaderElected;
+    public event LeaderElectionHandler? OnLeaderElectionResult;
 
     public override Task<AskPermissionToConnectResponse> AskPermissionToConnect(AskPermissionToConnectRequest request, ServerCallContext context)
     {
@@ -48,7 +48,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             ConsoleHelper.Debug($"Start election loop {request.ElectionLoopId}");
             _electionLoopInProgress = true;
             _electionLoopId = request.ElectionLoopId;
-            OnLeaderElection?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
+            OnLeaderElection?.Invoke(request);
         }
         else if (_electionLoopInProgress)
         {
@@ -56,8 +56,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderId}");
             LeaderId = request.LeaderId;
             _electionLoopInProgress = false;
-            OnLeaderElected?.Invoke();
-            OnLeaderElection?.Invoke(request.ElectionLoopId, request.LeaderId, request.LeaderConnectionTimestamp.ToDateTime());
+            OnLeaderElectionResult?.Invoke(request);
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });

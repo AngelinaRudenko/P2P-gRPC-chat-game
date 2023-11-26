@@ -36,7 +36,8 @@ internal class ChatClientService : IDisposable
 
         _chainService.OnDisconnect += Disconnect;
         _chainService.OnLeaderElection += ElectLeader;
-        _chainService.OnLeaderElected += StartChat;
+        _chainService.OnLeaderElectionResult += StartChat;
+        _chainService.OnLeaderElectionResult += PropagateElectedLeader;
         _chatService.OnChat += Chat;
         _chatService.OnChatResults += ChatResults;
 
@@ -155,39 +156,37 @@ internal class ChatClientService : IDisposable
             }
         }
 
-        ElectLeader(Guid.NewGuid().ToString(), _currentNodeId, _startTimestamp);
+        ElectLeader(new LeaderElectionRequest
+        {
+            ElectionLoopId = Guid.NewGuid().ToString(),
+            LeaderId = _currentNodeId, 
+            LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
+        });
     }
 
-    public void ElectLeader(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
+    public void ElectLeader(LeaderElectionRequest request)
     {
         var client = new ChainService.ChainServiceClient(_nextNodeChannel);
 
-        LeaderElectionRequest args;
-        if (leaderConnectionTimestamp < _startTimestamp) // node started earlier than current node
+        // current node started earlier than assumed leader
+        if (request.LeaderConnectionTimestamp.ToDateTime() > _startTimestamp)
         {
-            args = new LeaderElectionRequest
-            {
-                ElectionLoopId = electionLoopId,
-                LeaderId = leaderId,
-                LeaderConnectionTimestamp = Timestamp.FromDateTime(leaderConnectionTimestamp)
-            };
-        }
-        else // current node started earlier than node
-        {
-            args = new LeaderElectionRequest
-            {
-                ElectionLoopId = electionLoopId,
-                LeaderId = _currentNodeId,
-                LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
-            };
+            request.LeaderId = _currentNodeId;
+            request.LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp);
         }
 
-        client.ElectLeaderAsync(args, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
+        client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
     }
 
-    public void StartChat()
+    public void PropagateElectedLeader(LeaderElectionRequest request)
     {
-        _chainService.OnLeaderElected -= StartChat;
+        var client = new ChainService.ChainServiceClient(_nextNodeChannel);
+        client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
+    }
+
+    public void StartChat(LeaderElectionRequest request)
+    {
+        _chainService.OnLeaderElectionResult -= StartChat;
 
         if (_chatService.ChatInProgress || _chainService.LeaderId != _currentNodeId)
         {
@@ -210,38 +209,27 @@ internal class ChatClientService : IDisposable
             deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
-    public void Chat(string chatId, string receivedMessage, string messageChain)
+    public void Chat(ChatRequest request)
     {
-        Console.WriteLine($"Previous player said '{receivedMessage}'. Write message to next player:");
+        Console.WriteLine($"Previous player said '{request.Message}'. Write message to next player:");
         var input = Console.ReadLine();
+
+        request.Message = input;
+        request.MessageChain = $"{request.MessageChain}\n{_currentNodeId}: {input}";
 
         var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
-        client.ChatAsync(
-            new ChatRequest
-            {
-                ChatId = chatId,
-                Message = input, 
-                MessageChain = $"{messageChain}\n{_currentNodeId}: {input}"
-            },
-            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
-    public void ChatResults(string chatId, string messageChain)
+    public void ChatResults(ChatRequest request)
     {
         Console.WriteLine("Chat results:");
-        Console.WriteLine(messageChain);
+        Console.WriteLine(request.MessageChain);
        
         var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
-        client.ChatAsync(
-            new ChatRequest
-            {
-                ChatId = chatId,
-                Message = string.Empty,
-                MessageChain = messageChain
-            },
-            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
     public void Disconnect()
