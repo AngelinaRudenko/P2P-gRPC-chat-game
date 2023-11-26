@@ -12,16 +12,18 @@ internal class ChatClientService : IDisposable
     private readonly int _currentNodeId;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
+    private readonly TimeoutSettings _timeoutSettings;
     private readonly Server.ChainService _chainService;
     private readonly Server.ChatService _chatService;
 
     private readonly Timer _isNextNodeAliveTimer;
 
-    public ChatClientService(int nodeId, NodeSettings[] nodes, Server.ChainService chainService, Server.ChatService chatService)
+    public ChatClientService(Settings settings, Server.ChainService chainService, Server.ChatService chatService)
     {
         _startTimestamp = DateTime.UtcNow;
-        _currentNodeId = nodeId;
-        _nodes = nodes;
+        _currentNodeId = settings.CurrentNodeId;
+        _nodes = settings.NodesSettings;
+        _timeoutSettings = settings.TimeoutSettings;
         _chainService = chainService;
         _chatService = chatService;
 
@@ -34,11 +36,11 @@ internal class ChatClientService : IDisposable
 
         _chainService.OnDisconnect += Disconnect;
         _chainService.OnLeaderElectionRequest += ElectLeader;
-        _chainService.OnLeaderElected += StartChat;
-        _chatService.OnChat += Chat;
-        _chatService.OnChatResults += ChatResults;
+        //_chainService.OnLeaderElected += StartChat;
+        //_chatService.OnChat += Chat;
+        //_chatService.OnChatResults += ChatResults;
 
-        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5)); // check is alive status every 5 sec
+        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
     }
 
     private static int GetNextNodeId(int id, int nodesCount)
@@ -56,14 +58,15 @@ internal class ChatClientService : IDisposable
             ConsoleHelper.Debug("Reconnect");
             EstablishConnectionAsync().Wait();
 
-            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(1));
+            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
         }
     }
-    private static async Task<bool> IsAliveAsync(GrpcChannel channel)
+    private async Task<bool> IsAliveAsync(GrpcChannel channel)
     {
         try
         {
-            var isAlive = await channel.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(0.5))
+            var isAlive = await channel.ConnectAsync()
+                .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
                 .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
 
             return isAlive;
@@ -83,8 +86,8 @@ internal class ChatClientService : IDisposable
 
             if (nextNodeId == _currentNodeId)
             {
-                ConsoleHelper.Debug("Couldn't connect to any node. Sleep for 10 sec");
-                await Task.Delay(TimeSpan.FromSeconds(10));
+                ConsoleHelper.Debug($"Couldn't connect to any node. Sleep for {_timeoutSettings.ReestablishConnectionPeriod} sec");
+                await Task.Delay(TimeSpan.FromSeconds(_timeoutSettings.ReestablishConnectionPeriod));
                 continue;
             }
 
@@ -102,11 +105,11 @@ internal class ChatClientService : IDisposable
 
             try
             {
-                var nextNodeClient = new Proto.ChainService.ChainServiceClient(nextNodeChannel);
+                var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
 
                 var askPermissionResult = await nextNodeClient.AskPermissionToConnectAsync(
                     new AskPermissionToConnectRequest { NodeWantsToConnectId = _currentNodeId },
-                    deadline: DateTime.UtcNow.AddSeconds(1));
+                    deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
                 if (!askPermissionResult.CanConnect)
                 {
@@ -116,11 +119,11 @@ internal class ChatClientService : IDisposable
 
                     if (await IsAliveAsync(previousNodeChannel))
                     {
-                        var previousNodeClient = new Proto.ChainService.ChainServiceClient(previousNodeChannel);
+                        var previousNodeClient = new ChainService.ChainServiceClient(previousNodeChannel);
 
                         var askToDisconnectResult = await previousNodeClient.AskToDisconnectAsync(
                             new AskToDisconnectRequest { NodeAsksToDiconnectId = _currentNodeId },
-                            deadline: DateTime.UtcNow.AddSeconds(1));
+                            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
                         if (!askToDisconnectResult.IsOk)
                         {
@@ -133,7 +136,7 @@ internal class ChatClientService : IDisposable
 
                 var connectResult = await nextNodeClient.ConnectAsync(
                     new ConnectRequest { NodeWantsToConnectId = _currentNodeId },
-                    deadline: DateTime.UtcNow.AddSeconds(1));
+                    deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
                 if (!connectResult.IsOk)
                 {
@@ -157,7 +160,7 @@ internal class ChatClientService : IDisposable
 
     public void ElectLeader(string electionLoopId, int leaderId, DateTime leaderConnectionTimestamp)
     {
-        var client = new Proto.ChainService.ChainServiceClient(_nextNodeChannel);
+        var client = new ChainService.ChainServiceClient(_nextNodeChannel);
 
         LeaderElectionRequest args;
         if (leaderConnectionTimestamp < _startTimestamp) // node started earlier than current node
@@ -179,7 +182,7 @@ internal class ChatClientService : IDisposable
             };
         }
 
-        client.ElectLeaderAsync(args, deadline: DateTime.UtcNow.AddSeconds(1)); // do not wait
+        client.ElectLeaderAsync(args, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
     }
 
     public void StartChat()
@@ -195,7 +198,7 @@ internal class ChatClientService : IDisposable
         Console.WriteLine("Start new game, write the message for the next player");
         var input = Console.ReadLine();
 
-        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(
             new ChatRequest
@@ -204,7 +207,7 @@ internal class ChatClientService : IDisposable
                 Message = input,
                 MessageChain = $"{_currentNodeId}: {input}"
             }, 
-            deadline: DateTime.UtcNow.AddSeconds(1));
+            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
     public void Chat(string chatId, string receivedMessage, string messageChain)
@@ -212,7 +215,7 @@ internal class ChatClientService : IDisposable
         Console.WriteLine($"Previous player said '{receivedMessage}'. Write message to next player:");
         var input = Console.ReadLine();
 
-        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(
             new ChatRequest
@@ -221,7 +224,7 @@ internal class ChatClientService : IDisposable
                 Message = input, 
                 MessageChain = $"{messageChain}\n{_currentNodeId}: {input}"
             },
-            deadline: DateTime.UtcNow.AddSeconds(1));
+            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
     public void ChatResults(string chatId, string messageChain)
@@ -229,7 +232,7 @@ internal class ChatClientService : IDisposable
         Console.WriteLine("Chat results:");
         Console.WriteLine(messageChain);
        
-        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(
             new ChatRequest
@@ -238,7 +241,7 @@ internal class ChatClientService : IDisposable
                 Message = string.Empty,
                 MessageChain = messageChain
             },
-            deadline: DateTime.UtcNow.AddSeconds(1));
+            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
     public void Disconnect()
