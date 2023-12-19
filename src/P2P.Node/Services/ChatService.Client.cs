@@ -6,41 +6,40 @@ using Proto;
 
 namespace P2P.Node.Services;
 
-internal class ChatClientService : IDisposable
+internal partial class ChatService : IDisposable
 {
     private DateTime _startTimestamp;
     private readonly int _currentNodeId;
     private readonly NodeSettings[] _nodes;
     private GrpcChannel? _nextNodeChannel;
     private readonly TimeoutSettings _timeoutSettings;
-    private readonly Server.ChainService _chainService;
-    private readonly Server.ChatService _chatService;
 
     private readonly Timer _isNextNodeAliveTimer;
 
-    public ChatClientService(Settings settings, Server.ChainService chainService, Server.ChatService chatService)
+    public ChatService(Settings settings)
     {
         _startTimestamp = DateTime.UtcNow;
         _currentNodeId = settings.CurrentNodeId;
         _nodes = settings.NodesSettings;
         _timeoutSettings = settings.TimeoutSettings;
-        _chainService = chainService;
-        _chatService = chatService;
+
+        _chainController = new Server.ChainService();
+        _chatController = new Server.ChatService();
 
         _isNextNodeAliveTimer = new Timer(IsNextNodeAlive, null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public async Task StartAsync()
+    public async Task StartClientAsync()
     {
         await EstablishConnectionAsync();
 
-        _chainService.OnDisconnect += Disconnect;
-        _chainService.OnLeaderElection += ElectLeader;
-        _chainService.OnLeaderElectionResult += PropagateElectedLeader;
+        _chainController.OnDisconnect += Disconnect;
+        _chainController.OnLeaderElection += ElectLeader;
+        _chainController.OnLeaderElectionResult += PropagateElectedLeader;
 
-        _chainService.OnLeaderElectionResult += StartChat;
-        _chatService.OnChat += Chat;
-        _chatService.OnChatResults += ChatResults;
+        _chainController.OnLeaderElectionResult += StartChat;
+        _chatController.OnChat += Chat;
+        _chatController.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
     }
@@ -192,9 +191,9 @@ internal class ChatClientService : IDisposable
 
     public void StartChat(LeaderElectionRequest request)
     {
-        _chainService.OnLeaderElectionResult -= StartChat;
+        _chainController.OnLeaderElectionResult -= StartChat;
 
-        if (_chatService.ChatInProgress || _chainService.LeaderId != _currentNodeId)
+        if (_chatController.ChatInProgress || _chainController.LeaderId != _currentNodeId)
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
@@ -202,13 +201,13 @@ internal class ChatClientService : IDisposable
 
         var chatId = Guid.NewGuid().ToString();
 
-        _chatService.ChatInProgress = true;
-        _chatService.ChatId = chatId;
+        _chatController.ChatInProgress = true;
+        _chatController.ChatId = chatId;
 
         Console.WriteLine("Start new game, write the message for the next player");
         var input = Console.ReadLine();
 
-        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(
             new ChatRequest
@@ -229,7 +228,7 @@ internal class ChatClientService : IDisposable
         request.Message = input;
         request.MessageChain = $"{request.MessageChain}\n{_currentNodeId}: {input}";
 
-        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
@@ -239,11 +238,11 @@ internal class ChatClientService : IDisposable
         Console.WriteLine("Chat results:");
         Console.WriteLine(request.MessageChain);
        
-        var client = new ChatService.ChatServiceClient(_nextNodeChannel);
+        var client = new Proto.ChatService.ChatServiceClient(_nextNodeChannel);
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
-        _chainService.OnLeaderElectionResult += StartChat;
+        _chainController.OnLeaderElectionResult += StartChat;
 
         if (request.StartedByNodeId == _currentNodeId)
         {

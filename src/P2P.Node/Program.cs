@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using P2P.Node.Models;
-using P2P.Node.Server;
-using P2P.Node.Services;
+using ChatService = P2P.Node.Services.ChatService;
 
 namespace P2P.Node;
 
@@ -21,16 +20,14 @@ internal class Program
 
         Console.WriteLine($"Node {settings.CurrentNodeId}");
 
-        var chatServer = new ChatServer(settings.NodesSettings[settings.CurrentNodeId]);
-        await chatServer.StartAsync();
-
-        var chatClient = new ChatClientService(settings, chatServer.ChainService, chatServer.ChatService);
-        await chatClient.StartAsync();
+        var chatService = new ChatService(settings);
+        await chatService.StartServerAsync();
+        await chatService.StartClientAsync();
 
         while (true)
         {
         }
 
-        await chatServer.StopAsync();
+        await chatService.StopServerAsync();
     }
 }
