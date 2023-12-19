@@ -6,9 +6,9 @@ namespace P2P.Node.Server;
 internal class ChainService : Proto.ChainService.ChainServiceBase
 {
     // TODO: make thread safe
-    private int _previousNodeId = -1;
+    private Proto.Node? _previousNode = null;
 
-    public int LeaderId { get; private set; } = -1;
+    public Proto.Node? Leader { get; private set; } = null;
     private string _electionLoopId = string.Empty;
     private bool _electionLoopInProgress;
 
@@ -20,24 +20,29 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public override Task<AskPermissionToConnectResponse> AskPermissionToConnect(AskPermissionToConnectRequest request, ServerCallContext context)
     {
-        var canConnect = _previousNodeId < 0 || _previousNodeId == request.NodeWantsToConnectId;
+        var nodeWantsToConnect = request.NodeWantsToConnect;
+
+        var canConnect = _previousNode == null || 
+                         (_previousNode.Host == nodeWantsToConnect.Host && _previousNode.Port == nodeWantsToConnect.Port);
+
         ConsoleHelper.Debug(canConnect
-            ? $"Allow node {request.NodeWantsToConnectId} to connect"
-            : $"Deny node {request.NodeWantsToConnectId} to connect, {_previousNodeId} already connected");
-        return Task.FromResult(new AskPermissionToConnectResponse { CanConnect = canConnect, ConnectedNodeId = _previousNodeId });
+            ? $"Allow node {nodeWantsToConnect.Host}:{nodeWantsToConnect.Port} to connect"
+            : $"Deny node {nodeWantsToConnect.Host}:{nodeWantsToConnect.Port} to connect, node {_previousNode.Host}:{_previousNode.Port} already connected");
+        
+        return Task.FromResult(new AskPermissionToConnectResponse { CanConnect = canConnect, ConnectedNode = _previousNode });
     }
 
     public override Task<AskToDisconnectResponse> AskToDisconnect(AskToDisconnectRequest request, ServerCallContext context)
     {
         OnDisconnect?.Invoke();
-        ConsoleHelper.Debug($"Node {request.NodeAsksToDiconnectId} asked to disconnect, invoke disconnect");
+        ConsoleHelper.Debug($"Node {request.NodeAsksToDiconnect.Host}:{request.NodeAsksToDiconnect.Port} asked to disconnect, invoke disconnect");
         return Task.FromResult(new AskToDisconnectResponse { IsOk = true });
     }
 
     public override Task<ConnectResponse> Connect(ConnectRequest request, ServerCallContext context)
     {
-        ConsoleHelper.Debug($"Node {request.NodeWantsToConnectId} is connected");
-        _previousNodeId = request.NodeWantsToConnectId;
+        ConsoleHelper.Debug($"Node {request.NodeWantsToConnect.Host}:{request.NodeWantsToConnect.Port} is connected");
+        _previousNode = request.NodeWantsToConnect;
         return Task.FromResult(new ConnectResponse { IsOk = true });
     }
 
@@ -53,8 +58,8 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         else if (_electionLoopInProgress)
         {
             // else - leader found, need to propagate
-            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderId}");
-            LeaderId = request.LeaderId;
+            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderNode.Host}:{request.LeaderNode.Port}");
+            Leader = request.LeaderNode;
             _electionLoopInProgress = false;
             OnLeaderElectionResult?.Invoke(request);
         }

@@ -6,17 +6,22 @@ option csharp_namespace = "Proto";
 
 package chain;
 
+message Node {
+	string host = 1;
+	int32 port = 2;
+}
+
 message AskPermissionToConnectRequest {
-	int32 nodeWantsToConnectId = 1; // node that requests to connect
+	Node nodeWantsToConnect = 1; // node that requests to connect
 }
 
 message AskPermissionToConnectResponse {
 	bool canConnect = 1; // true if requesting node can connect, false if other node already connected
-	int32 connectedNodeId = 2; // node that connected to requested node
+	Node connectedNode = 2; // node that connected to requested node
 }
 
 message AskToDisconnectRequest {
-	int32 nodeAsksToDiconnectId = 1;
+	Node nodeAsksToDiconnect = 1;
 }
 
 message AskToDisconnectResponse {
@@ -24,7 +29,7 @@ message AskToDisconnectResponse {
 }
 
 message ConnectRequest {
-	int32 nodeWantsToConnectId = 1;
+	Node nodeWantsToConnect = 1;
 }
 
 message ConnectResponse {
@@ -32,7 +37,7 @@ message ConnectResponse {
 }
 
 message LeaderElectionRequest {
-	int32 leaderId = 1;
+	Node leaderNode = 1;
 	string electionLoopId = 2;
 	google.protobuf.Timestamp leaderConnectionTimestamp = 3;
 }

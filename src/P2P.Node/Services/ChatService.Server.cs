@@ -10,7 +10,7 @@ internal partial class ChatService
 
     public async Task StartServerAsync()
     {
-        var currentNodeSettings = _nodes[_currentNodeId];
+       
         try
         {
             _server = new Grpc.Core.Server
@@ -20,11 +20,11 @@ internal partial class ChatService
                     Proto.ChatService.BindService(_chatController),
                     Proto.ChainService.BindService(_chainController)
                 },
-                Ports = { new ServerPort(currentNodeSettings.Host, currentNodeSettings.Port, ServerCredentials.Insecure) }
+                Ports = { new ServerPort(_currentNode.Host, _currentNode.Port, ServerCredentials.Insecure) }
             };
 
             _server.Start();
-            ConsoleHelper.Debug($"Server is listening on {currentNodeSettings}");
+            ConsoleHelper.Debug($"Server is listening on {_currentNode}");
         }
         catch (IOException e)
         {

@@ -18,9 +18,16 @@ internal class Program
         var settings = config.GetRequiredSection(nameof(Settings)).Get<Settings>() ??
                        throw new Exception("Configuration couldn't load");
 
-        Console.WriteLine($"Node {settings.CurrentNodeId}");
+        Console.WriteLine("What is your username?");
+        var name = Console.ReadLine();
+        Console.WriteLine("Write your node host");
+        var host = Convert.ToString(Console.ReadLine());
+        Console.WriteLine("Write your node port");
+        var port = Convert.ToInt32(Console.ReadLine());
 
-        var chatService = new ChatService(settings);
+        var currentNode = new AppNode(name, host, port);
+
+        var chatService = new ChatService(currentNode, settings);
         await chatService.StartServerAsync();
         await chatService.StartClientAsync();
 

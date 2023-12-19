@@ -25,10 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="Protos\chain.proto" />
-  </ItemGroup>
-
-  <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
