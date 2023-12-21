@@ -14,6 +14,7 @@ internal partial class ChatService : IDisposable
     private readonly TimeoutSettings _timeoutSettings;
 
     private readonly Timer _isNextNodeAliveTimer;
+    private ChatRequest? _lastChatRequest;
 
     public ChatService(Proto.Node currentNode, Settings settings)
     {
@@ -68,6 +69,13 @@ internal partial class ChatService : IDisposable
 
             var topology = _chainController.Topology;
             ConsoleHelper.LogTopology(topology);
+
+            if (_lastChatRequest != null)
+            {
+                var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+                // resend message, do not wait
+                client.ChatAsync(_lastChatRequest, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+            }
 
             _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
         }
@@ -206,17 +214,18 @@ internal partial class ChatService : IDisposable
         Console.WriteLine("Start new game, write the message for the next player");
         var input = Console.ReadLine();
 
+        var message = new ChatRequest
+        {
+            StartedByNode = _currentNode,
+            ChatId = chatId,
+            Message = input,
+            MessageChain = $"{_currentNode.Name}: {input}"
+        };
+        _lastChatRequest = message;
+
         var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
         // do not wait
-        client.ChatAsync(
-            new ChatRequest
-            {
-                StartedByNode = _currentNode,
-                ChatId = chatId,
-                Message = input,
-                MessageChain = $"{_currentNode.Name}: {input}"
-            }, 
-            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        client.ChatAsync(message, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
     public void Chat(ChatRequest request)
@@ -226,6 +235,7 @@ internal partial class ChatService : IDisposable
 
         request.Message = input;
         request.MessageChain = $"{request.MessageChain}\n{_currentNode.Name}: {input}";
+        _lastChatRequest = request;
 
         var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
         // do not wait
