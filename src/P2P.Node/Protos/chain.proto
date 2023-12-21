@@ -29,8 +29,7 @@ message ConnectResponse {
 }
 
 message DisconnectRequest {
-	Node disconnectFromNode = 1;
-	Node connectToNode = 2;
+	Node connectToNode = 1;
 }
 
 message DisconnectResponse {
@@ -58,6 +57,14 @@ message ChatResponse {
 	bool isOk = 1;
 }
 
+message SetNextNextNodeRequest {
+	Node nextNextNode = 2;
+}
+
+message SetNextNextNodeResponse {
+	bool isOk = 1;
+}
+
 service ChainService {
 
 	// Connect to node. Node that was requsted to connect to will ask previous node to disconnect from it and connect to requesting node.
@@ -65,6 +72,8 @@ service ChainService {
 
 	// Ask node to disconnect from the node and connect to other
 	rpc Disconnect (DisconnectRequest) returns (DisconnectResponse) {}
+
+	rpc SetNextNextNode (SetNextNextNodeRequest) returns (SetNextNextNodeResponse) {}
 
 	rpc ElectLeader (LeaderElectionRequest) returns (LeaderElectionResponse) {}
 

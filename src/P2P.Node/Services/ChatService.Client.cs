@@ -35,6 +35,10 @@ internal partial class ChatService : IDisposable
             ElectLeader();
         }
 
+        var topology = _chainController.Topology;
+        ConsoleHelper.WriteGreen($"Previous {topology.PreviousNode?.Name}, next {topology.NextNode?.Name}," +
+                                 $" next next {topology.NextNextNode?.Name}, leader {topology.Leader?.Name}");
+
         _chainController.OnLeaderElection += ElectLeader;
         _chainController.OnLeaderElectionResult += PropagateElectedLeader;
 
@@ -53,13 +57,19 @@ internal partial class ChatService : IDisposable
             _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
             ConsoleHelper.Debug("Next node is not alive");
+            var previousNode = _chainController.Topology.PreviousNode;
             if (!TryConnectToNextNodeAutomatically().Result)
             {
                 ConnectToNextNodeManuallyAsync().Wait();
             }
+            _chainController.Topology.PreviousNode = previousNode;
 
             // disconnected node might be leader (or next next, or next next next...)
             ElectLeader();
+
+            var topology = _chainController.Topology;
+            ConsoleHelper.WriteGreen($"Previous {topology.PreviousNode?.Name}, next {topology.NextNode?.Name}," +
+                                     $" next next {topology.NextNextNode?.Name}, leader {topology.Leader?.Name}");
 
             _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
         }
@@ -89,11 +99,12 @@ internal partial class ChatService : IDisposable
 
             try
             {
-                Console.WriteLine("Write host of the node you want to connect");
-                var host = Convert.ToString(Console.ReadLine());
+                //Console.WriteLine("Write host of the node you want to connect");
+                //var host = Convert.ToString(Console.ReadLine());
+                var host = _currentNode.Host;
                 Console.WriteLine("Write port of the node you want to connect");
                 var port = Convert.ToInt32(Console.ReadLine());
-
+                
                 nextNode = new Proto.Node { Host = host, Port = port };
             }
             catch (Exception ex)
@@ -137,7 +148,7 @@ internal partial class ChatService : IDisposable
 
             _chainController.Topology = connectResponse.Topology;
             _chainController.NextNodeChannel = nextNodeChannel;
-            
+
             return true;
         }
         catch (Exception ex)
@@ -182,7 +193,8 @@ internal partial class ChatService : IDisposable
     {
         _chainController.OnLeaderElectionResult -= StartChat;
 
-        if (_chainController.ChatInProgress || _chainController.Leader?.Host != _currentNode.Host || _chainController.Leader?.Port != _currentNode.Port)
+        if (_chainController.ChatInProgress || _chainController.Topology.Leader?.Host != _currentNode.Host 
+                                            || _chainController.Topology.Leader?.Port != _currentNode.Port)
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;

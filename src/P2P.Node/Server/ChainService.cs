@@ -11,8 +11,8 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
 
     private readonly Proto.Node _currentNode;
     public Topology Topology { get; set; } = new();
+    public GrpcChannel? PreviousNodeChannel { get; set; }
     public GrpcChannel? NextNodeChannel { get; set; }
-    public Proto.Node? Leader { get; private set; }
     private string _electionLoopId = string.Empty;
     private bool _electionLoopInProgress;
 
@@ -30,68 +30,114 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
     {
         var nodeWantsToConnect = request.NodeWantsToConnect;
 
+        var previousNodeTopology = new Topology
+        {
+            PreviousNode = Topology.PreviousNode, NextNode = _currentNode, NextNextNode = Topology.NextNode,
+            Leader = Topology.Leader
+        };
+        
         if (nodeWantsToConnect.Host == _currentNode.Host && nodeWantsToConnect.Port == _currentNode.Port)
         {
-            ConsoleHelper.Debug("Skip attempt to connect to itself");
-            return await Task.FromResult(new ConnectResponse { IsOk = false, Topology = Topology });
+            ConsoleHelper.Debug("I am the first one and leader");
+            previousNodeTopology.Leader = _currentNode;
+            previousNodeTopology.NextNextNode = _currentNode;
+            Topology = previousNodeTopology;
         }
-
-        if (Topology.PreviousNode == null)
+        else if (Topology.PreviousNode == null)
         {
             ConsoleHelper.Debug($"Node {nodeWantsToConnect.Name} wants to connect, allow since no one connected");
         }
         else
         {
             ConsoleHelper.Debug($"Node {nodeWantsToConnect.Name} wants to connect, ask previous node {Topology.PreviousNode.Name} to disconnect");
-            
-            var previousNodeChannel = GrpcChannel.ForAddress($"http://{Topology.PreviousNode.Host}:{Topology.PreviousNode.Port}",
+
+            // if connected to itself, single node in circle
+            if (Topology.NextNode.Host == _currentNode.Host && Topology.NextNode.Port == _currentNode.Port)
+            {
+                previousNodeTopology.NextNextNode = nodeWantsToConnect;
+            }
+
+            PreviousNodeChannel = GrpcChannel.ForAddress($"http://{Topology.PreviousNode.Host}:{Topology.PreviousNode.Port}",
                 new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-            var isAlive = await previousNodeChannel.ConnectAsync()
+            var isAlive = await PreviousNodeChannel.ConnectAsync()
                 .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
                 .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
 
             if (isAlive)
             {
-                var previousNodeClient = new Proto.ChainService.ChainServiceClient(previousNodeChannel);
+                var previousNodeClient = new Proto.ChainService.ChainServiceClient(PreviousNodeChannel);
                 var askToDisconnectResult = await previousNodeClient.DisconnectAsync(
-                    new DisconnectRequest { DisconnectFromNode = _currentNode, ConnectToNode = nodeWantsToConnect },
+                    new DisconnectRequest { ConnectToNode = nodeWantsToConnect },
                     deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.DisconnectRequestTimeout));
 
                 if (!askToDisconnectResult.IsOk)
                 {
                     throw new Exception($"Node {Topology.PreviousNode.Name} doesn't agree to disconnect");
                 }
-            }
 
-            await previousNodeChannel.ShutdownAsync();
+                ConsoleHelper.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is disconnected from current");
+            }
+            else
+            {
+                ConsoleHelper.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is not alive");
+                previousNodeTopology.PreviousNode = null;
+
+                if (Topology.NextNextNode.Host == Topology.PreviousNode.Host &&
+                    Topology.NextNextNode.Port == Topology.PreviousNode.Port)
+                {
+                    Topology.NextNextNode = _currentNode;
+                }
+            }
         }
 
-        var previousNodeTopology = new Topology { PreviousNode = Topology.PreviousNode, NextNode = _currentNode, NextNextNode = Topology.NextNode };
         Topology.PreviousNode = nodeWantsToConnect;
+        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
+                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
 
         return await Task.FromResult(new ConnectResponse { IsOk = true, Topology = previousNodeTopology });
     }
 
     public override async Task<DisconnectResponse> Disconnect(DisconnectRequest request, ServerCallContext context)
     {
-        var disconnectFromNode = request.DisconnectFromNode;
+        ConsoleHelper.Debug($"Disconnect from node {Topology.NextNode.Name} and connect to node {request.ConnectToNode.Name}");
+        var oldNextNode = Topology.NextNode;
+        Topology.NextNode = request.ConnectToNode;
+        await NextNodeChannel!.ShutdownAsync();
+        NextNodeChannel = GrpcChannel.ForAddress($"http://{Topology.NextNode.Host}:{Topology.NextNode.Port}",
+            new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-        if (Topology.NextNode?.Host == disconnectFromNode.Host && Topology.NextNode?.Port == disconnectFromNode.Port)
+        PreviousNodeChannel ??= GrpcChannel.ForAddress($"http://{Topology.PreviousNode.Host}:{Topology.PreviousNode.Port}",
+            new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
+
+        var isAlive = await PreviousNodeChannel!.ConnectAsync()
+            .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
+            .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
+
+        if (isAlive)
         {
-            ConsoleHelper.Debug($"Disconnect from node {disconnectFromNode.Name} and connect to node {request.ConnectToNode.Name}");
-            Topology.NextNextNode = Topology.NextNode;
-            Topology.NextNode = request.ConnectToNode;
-            await NextNodeChannel!.ShutdownAsync();
-            NextNodeChannel = GrpcChannel.ForAddress($"http://{Topology.NextNode.Host}:{Topology.NextNode.Port}",
-                new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
+            Topology.NextNextNode = oldNextNode;
+
+            var previousNodeClient = new Proto.ChainService.ChainServiceClient(PreviousNodeChannel);
+            await previousNodeClient.SetNextNextNodeAsync(
+                new SetNextNextNodeRequest { NextNextNode = Topology.NextNode },
+                deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
         }
-        else
-        {
-            ConsoleHelper.Debug($"Skip disconnect from unknown node {disconnectFromNode.Name}");
-        }
+
+        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
+                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
 
         return await Task.FromResult(new DisconnectResponse { IsOk = true });
+    }
+
+    public override Task<SetNextNextNodeResponse> SetNextNextNode(SetNextNextNodeRequest request, ServerCallContext context)
+    {
+        ConsoleHelper.Debug($"Set new next next {request.NextNextNode.Name} instead of {Topology.NextNextNode.Name}");
+        Topology.NextNextNode = request.NextNextNode;
+        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
+                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
+
+        return Task.FromResult(new SetNextNextNodeResponse { IsOk = true });
     }
 
     public override Task<LeaderElectionResponse> ElectLeader(LeaderElectionRequest request, ServerCallContext context)
@@ -106,10 +152,12 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
         else if (_electionLoopInProgress)
         {
             // else - leader found, need to propagate
-            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} leader is {request.LeaderNode.Name}");
-            Leader = request.LeaderNode;
+            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} is finished");
+            Topology.Leader = request.LeaderNode;
             _electionLoopInProgress = false;
             OnLeaderElectionResult?.Invoke(request);
+            ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
+                                     $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });
