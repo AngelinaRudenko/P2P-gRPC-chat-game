@@ -22,4 +22,10 @@ internal static class ConsoleHelper
         Console.WriteLine(message);
         Console.ResetColor();
     }
+
+    internal static void LogTopology(Proto.Topology topology)
+    {
+        WriteGreen($"Previous {topology.PreviousNode?.Name}, next {topology.NextNode?.Name}," +
+                   $" next next {topology.NextNextNode?.Name}, leader {topology.Leader?.Name}");
+    }
 }

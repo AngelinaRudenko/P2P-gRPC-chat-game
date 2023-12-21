@@ -1,4 +1,5 @@
-﻿using Grpc.Core;
+﻿using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Grpc.Net.Client;
 using P2P.Node.Models;
 using Proto;
@@ -13,6 +14,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
     public Topology Topology { get; set; } = new();
     public GrpcChannel? PreviousNodeChannel { get; set; }
     public GrpcChannel? NextNodeChannel { get; set; }
+
     private string _electionLoopId = string.Empty;
     private bool _electionLoopInProgress;
 
@@ -43,16 +45,13 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
             previousNodeTopology.NextNextNode = _currentNode;
             Topology = previousNodeTopology;
         }
-        else if (Topology.PreviousNode == null)
-        {
-            ConsoleHelper.Debug($"Node {nodeWantsToConnect.Name} wants to connect, allow since no one connected");
-        }
         else
         {
             ConsoleHelper.Debug($"Node {nodeWantsToConnect.Name} wants to connect, ask previous node {Topology.PreviousNode.Name} to disconnect");
 
-            // if connected to itself, single node in circle
-            if (Topology.NextNode.Host == _currentNode.Host && Topology.NextNode.Port == _currentNode.Port)
+            var wasOnlyNodeInCircle = Topology.NextNode.Host == _currentNode.Host && Topology.NextNode.Port == _currentNode.Port;
+
+            if (wasOnlyNodeInCircle)
             {
                 previousNodeTopology.NextNextNode = nodeWantsToConnect;
             }
@@ -89,11 +88,24 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
                     Topology.NextNextNode = _currentNode;
                 }
             }
+
+            if (wasOnlyNodeInCircle)
+            {
+                // do not await
+                Task.Run(() =>
+                {
+                    OnLeaderElectionResult?.Invoke(new LeaderElectionRequest
+                    {
+                        ElectionLoopId = "start",
+                        LeaderNode = _currentNode,
+                        LeaderConnectionTimestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                    });
+                });
+            }
         }
 
         Topology.PreviousNode = nodeWantsToConnect;
-        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
-                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
+        ConsoleHelper.LogTopology(Topology);
 
         return await Task.FromResult(new ConnectResponse { IsOk = true, Topology = previousNodeTopology });
     }
@@ -124,8 +136,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
                 deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
         }
 
-        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
-                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
+        ConsoleHelper.LogTopology(Topology);
 
         return await Task.FromResult(new DisconnectResponse { IsOk = true });
     }
@@ -134,8 +145,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
     {
         ConsoleHelper.Debug($"Set new next next {request.NextNextNode.Name} instead of {Topology.NextNextNode.Name}");
         Topology.NextNextNode = request.NextNextNode;
-        ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
-                                 $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
+        ConsoleHelper.LogTopology(Topology);
 
         return Task.FromResult(new SetNextNextNodeResponse { IsOk = true });
     }
@@ -156,8 +166,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
             Topology.Leader = request.LeaderNode;
             _electionLoopInProgress = false;
             OnLeaderElectionResult?.Invoke(request);
-            ConsoleHelper.WriteGreen($"Previous {Topology.PreviousNode?.Name}, next {Topology.NextNode?.Name}," +
-                                     $" next next {Topology.NextNextNode?.Name}, leader {Topology.Leader?.Name}");
+            ConsoleHelper.LogTopology(Topology);
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });

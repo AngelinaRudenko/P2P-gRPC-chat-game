@@ -36,8 +36,7 @@ internal partial class ChatService : IDisposable
         }
 
         var topology = _chainController.Topology;
-        ConsoleHelper.WriteGreen($"Previous {topology.PreviousNode?.Name}, next {topology.NextNode?.Name}," +
-                                 $" next next {topology.NextNextNode?.Name}, leader {topology.Leader?.Name}");
+        ConsoleHelper.LogTopology(topology);
 
         _chainController.OnLeaderElection += ElectLeader;
         _chainController.OnLeaderElectionResult += PropagateElectedLeader;
@@ -68,8 +67,7 @@ internal partial class ChatService : IDisposable
             ElectLeader();
 
             var topology = _chainController.Topology;
-            ConsoleHelper.WriteGreen($"Previous {topology.PreviousNode?.Name}, next {topology.NextNode?.Name}," +
-                                     $" next next {topology.NextNextNode?.Name}, leader {topology.Leader?.Name}");
+            ConsoleHelper.LogTopology(topology);
 
             _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
         }
