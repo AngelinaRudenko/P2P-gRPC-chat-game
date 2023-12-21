@@ -110,7 +110,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
         PreviousNodeChannel ??= GrpcChannel.ForAddress($"http://{Topology.PreviousNode.Host}:{Topology.PreviousNode.Port}",
             new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-        var isAlive = await PreviousNodeChannel!.ConnectAsync()
+        var isAlive = await PreviousNodeChannel.ConnectAsync()
             .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
             .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
 

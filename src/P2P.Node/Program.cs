@@ -27,7 +27,7 @@ internal class Program
         int? port = 7654;
         try
         {
-            var localhost = Dns.GetHostEntry(Dns.GetHostName());
+            var localhost = await Dns.GetHostEntryAsync(Dns.GetHostName());
             var ip = localhost.AddressList.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork);
             if (ip != null)
             {
