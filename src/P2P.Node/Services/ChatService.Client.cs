@@ -206,6 +206,14 @@ internal partial class ChatService : IDisposable
             return;
         }
 
+        if (_chainController.Topology.NextNode.Host == _currentNode.Host &&
+            _chainController.Topology.NextNode.Port == _currentNode.Port)
+        {
+            Console.WriteLine("Game is stopped, you're the only one player");
+            _chainController.OnLeaderElectionResult += StartChat;
+            return;
+        }
+
         var chatId = Guid.NewGuid().ToString();
 
         _chainController.ChatInProgress = true;
@@ -216,7 +224,6 @@ internal partial class ChatService : IDisposable
 
         var message = new ChatRequest
         {
-            StartedByNode = _currentNode,
             ChatId = chatId,
             Message = input,
             MessageChain = $"{_currentNode.Name}: {input}"
@@ -253,7 +260,7 @@ internal partial class ChatService : IDisposable
 
         _chainController.OnLeaderElectionResult += StartChat;
 
-        if (request.StartedByNode.Host == _currentNode.Host && request.StartedByNode.Port == _currentNode.Port)
+        if (_chainController.Topology.Leader.Host == _currentNode.Host && _chainController.Topology.Leader.Port == _currentNode.Port)
         {
             _startTimestamp = DateTime.UtcNow; // put to the end of the front
             ElectLeader(); // next leader will be the one, who connected after the current leader

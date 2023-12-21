@@ -47,7 +47,6 @@ message LeaderElectionResponse {
 }
 
 message ChatRequest {
-	Node startedByNode = 1;
 	string chatId = 2;
 	string message = 3;
 	string messageChain = 4;
