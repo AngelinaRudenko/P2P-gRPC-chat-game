@@ -9,30 +9,31 @@ package chain;
 message Node {
 	string host = 1;
 	int32 port = 2;
+	string name = 3;
 }
 
-message AskPermissionToConnectRequest {
-	Node nodeWantsToConnect = 1; // node that requests to connect
-}
-
-message AskPermissionToConnectResponse {
-	bool canConnect = 1; // true if requesting node can connect, false if other node already connected
-	Node connectedNode = 2; // node that connected to requested node
-}
-
-message AskToDisconnectRequest {
-	Node nodeAsksToDiconnect = 1;
-}
-
-message AskToDisconnectResponse {
-	bool isOk = 1;
+message Topology {
+	Node previousNode = 1;
+	Node nextNode = 2;
+	Node nextNextNode = 3;
+	Node leader = 4;
 }
 
 message ConnectRequest {
-	Node nodeWantsToConnect = 1;
+	Node nodeWantsToConnect = 1; // node that requests to connect
 }
 
 message ConnectResponse {
+	bool isOk = 1; // true if requesting node can connect, false if other node already connected
+	Topology topology = 2;
+}
+
+message DisconnectRequest {
+	Node disconnectFromNode = 1;
+	Node connectToNode = 2;
+}
+
+message DisconnectResponse {
 	bool isOk = 1;
 }
 
@@ -46,15 +47,26 @@ message LeaderElectionResponse {
 	bool isOk = 1;
 }
 
+message ChatRequest {
+	Node startedByNode = 1;
+	string chatId = 2;
+	string message = 3;
+	string messageChain = 4;
+}
+
+message ChatResponse {
+	bool isOk = 1;
+}
+
 service ChainService {
 
-	// Ask permission to connect to node
-	rpc AskPermissionToConnect (AskPermissionToConnectRequest) returns (AskPermissionToConnectResponse) {}
-
-	// Ask node to disconnect from the node requesting node wants to connect
-	rpc AskToDisconnect (AskToDisconnectRequest) returns (AskToDisconnectResponse) {}
-
+	// Connect to node. Node that was requsted to connect to will ask previous node to disconnect from it and connect to requesting node.
 	rpc Connect (ConnectRequest) returns (ConnectResponse) {}
 
+	// Ask node to disconnect from the node and connect to other
+	rpc Disconnect (DisconnectRequest) returns (DisconnectResponse) {}
+
 	rpc ElectLeader (LeaderElectionRequest) returns (LeaderElectionResponse) {}
+
+	rpc Chat (ChatRequest) returns (ChatResponse) {}
 }

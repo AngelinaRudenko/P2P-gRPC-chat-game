@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using P2P.Node.Models;
+using System.Net.Sockets;
+using System.Net;
 using ChatService = P2P.Node.Services.ChatService;
 
 namespace P2P.Node;
@@ -20,14 +22,35 @@ internal class Program
 
         Console.WriteLine("What is your username?");
         var name = Console.ReadLine();
-        Console.WriteLine("Write your node host");
-        var host = Convert.ToString(Console.ReadLine());
+
+        string? host = null;
+        int? port = 7654;
+        try
+        {
+            var localhost = Dns.GetHostEntry(Dns.GetHostName());
+            var ip = localhost.AddressList.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork);
+            if (ip != null)
+            {
+                host = ip.ToString();
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (host == null)
+        {
+            Console.WriteLine("Write your node host");
+            host = Convert.ToString(Console.ReadLine());
+            //Console.WriteLine("Write your node port");
+            //port = Convert.ToInt32(Console.ReadLine());
+        }
+
         Console.WriteLine("Write your node port");
-        var port = Convert.ToInt32(Console.ReadLine());
+        port = Convert.ToInt32(Console.ReadLine());
 
-        var currentNode = new AppNode(name, host, port);
-
-        var chatService = new ChatService(currentNode, settings);
+        var chatService = new ChatService(new Proto.Node { Host = host, Port = port.Value, Name = name }, settings);
         await chatService.StartServerAsync();
         await chatService.StartClientAsync();
 

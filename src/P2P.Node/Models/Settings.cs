@@ -11,6 +11,7 @@ internal class Settings
 internal class TimeoutSettings
 {
     public required double CommonRequestTimeout { get; set; }
+    public required double ConnectRequestTimeout { get; set; }
     public required double DisconnectRequestTimeout { get; set; }
     public required double IsAliveTimerPeriod { get; set; }
     public required double IsAliveRequestTimeout { get; set; }

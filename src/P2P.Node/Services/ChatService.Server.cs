@@ -6,7 +6,6 @@ internal partial class ChatService
 {
     private Grpc.Core.Server? _server;
     private readonly Server.ChainService _chainController;
-    private readonly Server.ChatService _chatController;
 
     public async Task StartServerAsync()
     {
@@ -17,14 +16,13 @@ internal partial class ChatService
             {
                 Services =
                 {
-                    Proto.ChatService.BindService(_chatController),
                     Proto.ChainService.BindService(_chainController)
                 },
                 Ports = { new ServerPort(_currentNode.Host, _currentNode.Port, ServerCredentials.Insecure) }
             };
 
             _server.Start();
-            ConsoleHelper.Debug($"Server is listening on {_currentNode}");
+            ConsoleHelper.Debug($"Server is listening on http://{_currentNode.Host}:{_currentNode.Port}");
         }
         catch (IOException e)
         {
@@ -40,6 +38,7 @@ internal partial class ChatService
         {
             ConsoleHelper.Debug("Server shutdown");
             await _server.ShutdownAsync();
+            _server = null;
         }
     }
 }
