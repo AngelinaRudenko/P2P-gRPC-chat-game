@@ -50,7 +50,7 @@ internal class Program
         Console.WriteLine("Write your node port");
         port = Convert.ToInt32(Console.ReadLine());
 
-        var chatService = new ChatService(new Proto.Node { Host = host, Port = port.Value, Name = name }, settings);
+        var chatService = new ChatService(new AppNode(name, host, port.Value), settings);
         await chatService.StartServerAsync();
         await chatService.StartClientAsync();
 

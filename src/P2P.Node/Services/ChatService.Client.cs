@@ -1,6 +1,7 @@
 ﻿using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Grpc.Net.Client;
+using P2P.Node.Configs;
 using P2P.Node.Models;
 using Proto;
 
@@ -8,7 +9,7 @@ namespace P2P.Node.Services;
 
 internal partial class ChatService : IDisposable
 {
-    private readonly Proto.Node _currentNode;
+    private readonly AppNode _currentNode;
     private DateTime _startTimestamp;
     
     private readonly TimeoutSettings _timeoutSettings;
@@ -16,7 +17,7 @@ internal partial class ChatService : IDisposable
     private readonly Timer _isNextNodeAliveTimer;
     private ChatRequest? _lastChatRequest;
 
-    public ChatService(Proto.Node currentNode, Settings settings)
+    public ChatService(AppNode currentNode, Settings settings)
     {
         _currentNode = currentNode;
         _startTimestamp = DateTime.UtcNow;
@@ -31,65 +32,58 @@ internal partial class ChatService : IDisposable
     {
         await ConnectToNextNodeManuallyAsync();
 
-        if (_chainController.Topology.Leader == null)
-        {
-            ElectLeader();
-        }
-
-        var topology = _chainController.Topology;
-        ConsoleHelper.LogTopology(topology);
+        ConsoleHelper.LogTopology(_chainController.Topology);
 
         _chainController.OnLeaderElection += ElectLeader;
-        _chainController.OnLeaderElectionResult += PropagateElectedLeader;
+        _chainController.OnLeaderElectionResult += SendLeaderElectionRequest;
 
-        _chainController.OnLeaderElectionResult += StartChat;
+        _chainController.OnStartChat += StartChat;
         _chainController.OnChat += Chat;
         _chainController.OnChatResults += ChatResults;
 
-        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod)); // check is alive status every 5 sec
+        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
     }
-
 
     private void IsNextNodeAlive(object? stateInfo)
     {
-        if (_chainController.NextNodeChannel == null || !IsAliveAsync(_chainController.NextNodeChannel).Result)
+        if (_chainController.NextNodeChannel != null && IsAliveAsync(_chainController.NextNodeChannel).Result)
         {
-            _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
-
-            ConsoleHelper.Debug("Next node is not alive");
-            var previousNode = _chainController.Topology.PreviousNode;
-            if (!TryConnectToNextNodeAutomatically().Result)
-            {
-                ConnectToNextNodeManuallyAsync().Wait();
-            }
-            _chainController.Topology.PreviousNode = previousNode;
-
-            // disconnected node might be leader (or next next, or next next next...)
-            ElectLeader();
-
-            var topology = _chainController.Topology;
-            ConsoleHelper.LogTopology(topology);
-
-            if (_lastChatRequest != null)
-            {
-                var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
-                // resend message, do not wait
-                client.ChatAsync(_lastChatRequest, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
-            }
-
-            _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
+            return;
         }
+
+        ConsoleHelper.Debug("Next node is not alive");
+        
+        _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
+       
+        var previousNode = _chainController.Topology.PreviousNode;
+        if (!TryConnectToNextNodeAutomatically().Result)
+        {
+            ConnectToNextNodeManuallyAsync().Wait();
+        }
+        _chainController.Topology.PreviousNode = previousNode;
+
+        // disconnected node might be leader (or next next, or next next next...)
+        ElectLeader();
+
+        ConsoleHelper.LogTopology(_chainController.Topology);
+
+        if (_lastChatRequest != null)
+        {
+            var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+            // resend message, do not wait
+            client.ChatAsync(_lastChatRequest, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        }
+
+        _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
     }
     
     private async Task<bool> IsAliveAsync(GrpcChannel channel)
     {
         try
         {
-            var isAlive = await channel.ConnectAsync()
+            return await channel.ConnectAsync()
                 .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
                 .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
-
-            return isAlive;
         }
         catch
         {
@@ -101,7 +95,7 @@ internal partial class ChatService : IDisposable
     {
         while (true)
         {
-            Proto.Node nextNode;
+            AppNode nextNode;
 
             try
             {
@@ -111,7 +105,7 @@ internal partial class ChatService : IDisposable
                 Console.WriteLine("Write port of the node you want to connect");
                 var port = Convert.ToInt32(Console.ReadLine());
                 
-                nextNode = new Proto.Node { Host = host, Port = port };
+                nextNode = new AppNode("unknown", host, port);
             }
             catch (Exception ex)
             {
@@ -128,13 +122,16 @@ internal partial class ChatService : IDisposable
 
     private async Task<bool> TryConnectToNextNodeAutomatically()
     {
-        ConsoleHelper.Debug("Try to automatically connect to next next node");
-        return _chainController.Topology.NextNextNode != null && await TryConnectToNextNode(_chainController.Topology.NextNextNode);
+        if (_chainController.Topology.NextNextNode == null)
+            return false;
+
+        ConsoleHelper.Debug($"Try to automatically connect to next next node {_chainController.Topology.NextNextNode.Name}");
+        return await TryConnectToNextNode(_chainController.Topology.NextNextNode);
     }
 
-    private async Task<bool> TryConnectToNextNode(Proto.Node nextNode)
+    private async Task<bool> TryConnectToNextNode(AppNode nextNode)
     {
-        var nextNodeChannel = GrpcChannel.ForAddress($"http://{nextNode.Host}:{nextNode.Port}",
+        var nextNodeChannel = GrpcChannel.ForAddress(nextNode.ToString(),
             new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
         try
@@ -142,17 +139,17 @@ internal partial class ChatService : IDisposable
             var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
 
             var connectResponse = await nextNodeClient.ConnectAsync(
-                new ConnectRequest { NodeWantsToConnect = _currentNode },
+                new ConnectRequest { NodeWantsToConnect = SingletonMapper.Map<AppNode, Proto.Node>(_currentNode) },
                 deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.ConnectRequestTimeout));
 
             if (!connectResponse.IsOk)
             {
-                throw new Exception($"Failed to connect to node http://{nextNode.Host}:{nextNode.Port}");
+                throw new Exception($"Failed to connect to node {nextNode}");
             }
 
             ConsoleHelper.WriteGreen($"Connected to node {connectResponse.Topology.NextNode.Name}");
 
-            _chainController.Topology = connectResponse.Topology;
+            _chainController.Topology = SingletonMapper.Map<Topology, AppTopology>(connectResponse.Topology);
             _chainController.NextNodeChannel = nextNodeChannel;
 
             return true;
@@ -165,76 +162,80 @@ internal partial class ChatService : IDisposable
         }
     }
 
+    #region Leader election
+
     public void ElectLeader()
     {
         ElectLeader(new LeaderElectionRequest
         {
             ElectionLoopId = Guid.NewGuid().ToString(),
-            LeaderNode = _currentNode,
+            LeaderNode = SingletonMapper.Map<AppNode, Proto.Node>(_currentNode),
             LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
         });
     }
 
     public void ElectLeader(LeaderElectionRequest request)
     {
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
-
         // current node started earlier than assumed leader
         if (request.LeaderConnectionTimestamp.ToDateTime() > _startTimestamp)
         {
-            request.LeaderNode = _currentNode;
+            request.LeaderNode = SingletonMapper.Map<AppNode, Proto.Node>(_currentNode);
             request.LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp);
         }
 
-        client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
+        SendLeaderElectionRequest(request);
     }
-
-    public void PropagateElectedLeader(LeaderElectionRequest request)
+    
+    public void SendLeaderElectionRequest(LeaderElectionRequest request)
     {
+        // do not wait
         var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
-        client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); // do not wait
+        client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); 
     }
 
-    public void StartChat(LeaderElectionRequest request)
-    {
-        _chainController.OnLeaderElectionResult -= StartChat;
+    #endregion
 
-        if (_chainController.ChatInProgress || _chainController.Topology.Leader?.Host != _currentNode.Host 
-                                            || _chainController.Topology.Leader?.Port != _currentNode.Port)
+    #region Chat
+
+    /// <summary>
+    /// Leader starts new chat game
+    /// </summary>
+    public void StartChat()
+    { 
+        if (_currentNode.Equals(_chainController.Topology.NextNode)) 
+        { 
+            Console.WriteLine("Game is stopped, you're the only one player"); 
+            return;
+        }
+        
+        _chainController.OnStartChat -= StartChat;
+
+        if (_chainController.ChatInProgress || !_currentNode.Equals(_chainController.Topology.Leader))
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
         }
 
-        if (_chainController.Topology.NextNode.Host == _currentNode.Host &&
-            _chainController.Topology.NextNode.Port == _currentNode.Port)
-        {
-            Console.WriteLine("Game is stopped, you're the only one player");
-            _chainController.OnLeaderElectionResult += StartChat;
-            return;
-        }
-
-        var chatId = Guid.NewGuid().ToString();
-
         _chainController.ChatInProgress = true;
-        _chainController.ChatId = chatId;
+        _chainController.ChatId = Guid.NewGuid().ToString();
 
         Console.WriteLine("Start new game, write the message for the next player");
         var input = Console.ReadLine();
 
-        var message = new ChatRequest
+        _lastChatRequest = new ChatRequest
         {
-            ChatId = chatId,
+            ChatId = _chainController.ChatId,
             Message = input,
             MessageChain = $"{_currentNode.Name}: {input}"
         };
-        _lastChatRequest = message;
 
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
-        // do not wait
-        client.ChatAsync(message, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        SendChatRequest(_lastChatRequest);
     }
 
+    /// <summary>
+    /// Non-leader node play chat game
+    /// </summary>
+    /// <param name="request">Message received from previous node</param>
     public void Chat(ChatRequest request)
     {
         Console.WriteLine($"Previous player said '{request.Message}'. Write message to next player:");
@@ -244,11 +245,13 @@ internal partial class ChatService : IDisposable
         request.MessageChain = $"{request.MessageChain}\n{_currentNode.Name}: {input}";
         _lastChatRequest = request;
 
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
-        // do not wait
-        client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+        SendChatRequest(request);
     }
 
+    /// <summary>
+    /// Propagate chat game results when game is finished
+    /// </summary>
+    /// <param name="request">Request contains messages from all players</param>
     public void ChatResults(ChatRequest request)
     {
         Console.WriteLine("Chat results:");
@@ -258,18 +261,27 @@ internal partial class ChatService : IDisposable
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
-        _chainController.OnLeaderElectionResult += StartChat;
+        _chainController.OnStartChat += StartChat;
 
-        if (_chainController.Topology.Leader.Host == _currentNode.Host && _chainController.Topology.Leader.Port == _currentNode.Port)
+        if (_currentNode.Equals(_chainController.Topology.Leader))
         {
             _startTimestamp = DateTime.UtcNow; // put to the end of the front
             ElectLeader(); // next leader will be the one, who connected after the current leader
         }
     }
 
+    private void SendChatRequest(ChatRequest request)
+    {
+        // do not wait
+        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+        client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+    }
+
+    #endregion
+
     public void Dispose()
     {
         _isNextNodeAliveTimer.Dispose();
-        _server?.ShutdownAsync().Wait();
+        StopServerAsync().Wait();
     }
 }
