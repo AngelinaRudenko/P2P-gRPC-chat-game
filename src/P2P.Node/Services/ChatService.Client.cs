@@ -1,5 +1,4 @@
 ﻿using Google.Protobuf.WellKnownTypes;
-using Grpc.Core;
 using Grpc.Net.Client;
 using P2P.Node.Configs;
 using P2P.Node.Models;
@@ -46,7 +45,7 @@ internal partial class ChatService : IDisposable
 
     private void IsNextNodeAlive(object? stateInfo)
     {
-        if (_chainController.NextNodeChannel != null && IsAliveAsync(_chainController.NextNodeChannel).Result)
+        if (_chainController.Topology.NextNode!= null && IsAliveAsync(_chainController.Topology.NextNode.Channel.Value).Result)
         {
             return;
         }
@@ -54,14 +53,24 @@ internal partial class ChatService : IDisposable
         ConsoleHelper.Debug("Next node is not alive");
         
         _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
-       
+
         var previousNode = _chainController.Topology.PreviousNode;
         if (!TryConnectToNextNodeAutomatically().Result)
         {
             ConnectToNextNodeManuallyAsync().Wait();
         }
-        _chainController.Topology.PreviousNode = previousNode;
 
+        if (_chainController.Topology.NextNode?.Equals(_currentNode) == true)
+        {
+            previousNode = _currentNode;
+            _lastChatRequest = null;
+            _chainController.ChatInProgress = false;
+            _chainController.OnStartChat += StartChat;
+            Console.WriteLine("Game is stopped, you're the only one player");
+        }
+        
+        _chainController.Topology.PreviousNode = previousNode;
+        
         // disconnected node might be leader (or next next, or next next next...)
         ElectLeader();
 
@@ -69,7 +78,7 @@ internal partial class ChatService : IDisposable
 
         if (_lastChatRequest != null)
         {
-            var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+            var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode!.Channel.Value);
             // resend message, do not wait
             client.ChatAsync(_lastChatRequest, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
         }
@@ -131,12 +140,9 @@ internal partial class ChatService : IDisposable
 
     private async Task<bool> TryConnectToNextNode(AppNode nextNode)
     {
-        var nextNodeChannel = GrpcChannel.ForAddress(nextNode.ToString(),
-            new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
-
         try
         {
-            var nextNodeClient = new ChainService.ChainServiceClient(nextNodeChannel);
+            var nextNodeClient = new ChainService.ChainServiceClient(nextNode.Channel.Value);
 
             var connectResponse = await nextNodeClient.ConnectAsync(
                 new ConnectRequest { NodeWantsToConnect = SingletonMapper.Map<AppNode, Proto.Node>(_currentNode) },
@@ -150,13 +156,11 @@ internal partial class ChatService : IDisposable
             ConsoleHelper.WriteGreen($"Connected to node {connectResponse.Topology.NextNode.Name}");
 
             _chainController.Topology = SingletonMapper.Map<Topology, AppTopology>(connectResponse.Topology);
-            _chainController.NextNodeChannel = nextNodeChannel;
 
             return true;
         }
         catch (Exception ex)
         {
-            await nextNodeChannel.ShutdownAsync();
             ConsoleHelper.WriteRed($"Failed ot connect to node {nextNode.Name}: {ex.Message}");
             return false;
         }
@@ -189,7 +193,7 @@ internal partial class ChatService : IDisposable
     public void SendLeaderElectionRequest(LeaderElectionRequest request)
     {
         // do not wait
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
         client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout)); 
     }
 
@@ -257,7 +261,7 @@ internal partial class ChatService : IDisposable
         Console.WriteLine("Chat results:");
         Console.WriteLine(request.MessageChain);
        
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
@@ -273,7 +277,7 @@ internal partial class ChatService : IDisposable
     private void SendChatRequest(ChatRequest request)
     {
         // do not wait
-        var client = new ChainService.ChainServiceClient(_chainController.NextNodeChannel);
+        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 

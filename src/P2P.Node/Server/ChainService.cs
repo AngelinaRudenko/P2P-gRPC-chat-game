@@ -6,7 +6,7 @@ using Proto;
 
 namespace P2P.Node.Server;
 
-internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
+internal class ChainService : Proto.ChainService.ChainServiceBase
 {
     private readonly TimeoutSettings _timeoutSettings;
 
@@ -30,8 +30,6 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
     }
 
     public AppTopology Topology { get; set; } = new();
-    public GrpcChannel? PreviousNodeChannel { get; set; }
-    public GrpcChannel? NextNodeChannel { get; set; }
 
     public bool ChatInProgress { get; set; }
     public string ChatId { get; set; } = string.Empty;
@@ -68,16 +66,13 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
         }
         else if (Topology.PreviousNode != null)
         {
-           PreviousNodeChannel = GrpcChannel.ForAddress(Topology.PreviousNode.ToString(),
-                new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
-
-            var isAlive = await PreviousNodeChannel.ConnectAsync()
+            var isAlive = await Topology.PreviousNode.Channel.Value.ConnectAsync()
                 .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
                 .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
 
             if (isAlive)
             {
-                var previousNodeClient = new Proto.ChainService.ChainServiceClient(PreviousNodeChannel);
+                var previousNodeClient = new Proto.ChainService.ChainServiceClient(Topology.PreviousNode.Channel.Value);
                 var askToDisconnectResult = await previousNodeClient.DisconnectAsync(
                     new DisconnectRequest { ConnectToNode = request.NodeWantsToConnect },
                     deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.DisconnectRequestTimeout));
@@ -123,29 +118,23 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
     public override async Task<DisconnectResponse> Disconnect(DisconnectRequest request, ServerCallContext context)
     {
         ConsoleHelper.Debug($"Disconnect from node {Topology.NextNode?.Name} and connect to node {request.ConnectToNode.Name}");
-        
-        var oldNextNode = Topology.NextNode;
-        
+
+        Topology.NextNextNode = Topology.NextNode;
         Topology.NextNode = SingletonMapper.Map<Proto.Node, AppNode>(request.ConnectToNode);
-        await NextNodeChannel!.ShutdownAsync();
-        NextNodeChannel = GrpcChannel.ForAddress(Topology.NextNode.ToString(),
-            new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
 
-        PreviousNodeChannel ??= GrpcChannel.ForAddress(Topology.PreviousNode.ToString(),
-            new GrpcChannelOptions { Credentials = ChannelCredentials.Insecure });
-
-        var isAlive = await PreviousNodeChannel.ConnectAsync()
-            .WaitAsync(TimeSpan.FromSeconds(_timeoutSettings.IsAliveRequestTimeout))
-            .ContinueWith(task => task.Status == TaskStatus.RanToCompletion);
-
-        if (isAlive)
+        if (Topology.PreviousNode != null)
         {
-            Topology.NextNextNode = oldNextNode;
-
-            var previousNodeClient = new Proto.ChainService.ChainServiceClient(PreviousNodeChannel);
-            await previousNodeClient.SetNextNextNodeAsync(
-                new SetNextNextNodeRequest { NextNextNode = SingletonMapper.Map<AppNode, Proto.Node>(Topology.NextNode) },
-                deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+            try
+            {
+                var previousNodeClient = new Proto.ChainService.ChainServiceClient(Topology.PreviousNode.Channel.Value);
+                await previousNodeClient.SetNextNextNodeAsync(
+                    new SetNextNextNodeRequest { NextNextNode = SingletonMapper.Map<AppNode, Proto.Node>(Topology.NextNode) },
+                    deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+            }
+            catch
+            {
+                ConsoleHelper.Debug($"Failed to set next node for previous node {Topology.PreviousNode}");
+            }
         }
 
         ConsoleHelper.LogTopology(Topology);
@@ -201,11 +190,5 @@ internal class ChainService : Proto.ChainService.ChainServiceBase, IDisposable
         }
 
         return Task.FromResult(new ChatResponse { IsOk = true });
-    }
-
-    public void Dispose()
-    {
-        NextNodeChannel?.ShutdownAsync().Wait();
-        NextNodeChannel?.Dispose();
     }
 }
