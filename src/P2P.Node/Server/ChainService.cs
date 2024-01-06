@@ -1,5 +1,4 @@
 ﻿using Grpc.Core;
-using Grpc.Net.Client;
 using P2P.Node.Configs;
 using P2P.Node.Models;
 using Proto;
@@ -21,7 +20,6 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     public delegate void ChatHandler(ChatRequest request);
     public event Action? OnStartChat;
     public event ChatHandler? OnChat;
-    public event ChatHandler? OnChatResults;
 
     public ChainService(AppNode currentNode, TimeoutSettings timeoutSettings)
     {
@@ -30,9 +28,6 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     }
 
     public AppTopology Topology { get; set; } = new();
-
-    public bool ChatInProgress { get; set; }
-    public string ChatId { get; set; } = string.Empty;
 
     public override async Task<ConnectResponse> Connect(ConnectRequest request, ServerCallContext context)
     {
@@ -154,7 +149,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             ConsoleHelper.Debug($"Start election loop {request.ElectionLoopId}");
             _electionLoopInProgress = true;
             _electionLoopId = request.ElectionLoopId;
-            OnLeaderElection?.Invoke(request);
+            Task.Run(() => OnLeaderElection?.Invoke(request));
         }
         else if (_electionLoopInProgress)
         {
@@ -162,8 +157,8 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} is finished");
             Topology.Leader = SingletonMapper.Map<Proto.Node, AppNode>(request.LeaderNode);
             _electionLoopInProgress = false;
-            OnLeaderElectionResult?.Invoke(request);
-            OnStartChat?.Invoke();
+            Task.Run(() => OnLeaderElectionResult?.Invoke(request));
+            Task.Run(() => OnStartChat?.Invoke());
             ConsoleHelper.LogTopology(Topology);
         }
 
@@ -172,19 +167,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public override Task<ChatResponse> Chat(ChatRequest request, ServerCallContext context)
     {
-        if (ChatId.Equals(request.ChatId, StringComparison.InvariantCulture) == false)
-        {
-            ChatInProgress = true;
-            ChatId = request.ChatId;
-            OnChat?.Invoke(request);
-        }
-        else if (ChatInProgress)
-        {
-            // chat loop finished, propagate results
-            ChatInProgress = false;
-            OnChatResults?.Invoke(request);
-        }
-
+        Task.Run(() => OnChat?.Invoke(request));
         return Task.FromResult(new ChatResponse { IsOk = true });
     }
 }

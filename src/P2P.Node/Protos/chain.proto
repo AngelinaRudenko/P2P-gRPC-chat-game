@@ -50,6 +50,7 @@ message ChatRequest {
 	string chatId = 2;
 	string message = 3;
 	string messageChain = 4;
+	bool isResultPropagation = 5;
 }
 
 message ChatResponse {
