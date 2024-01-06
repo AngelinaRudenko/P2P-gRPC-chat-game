@@ -37,7 +37,7 @@ internal partial class ChatService : IDisposable
         _chainController.OnLeaderElectionResult += SendLeaderElectionRequest;
 
         _chainController.OnStartChat += StartChat;
-        _chainController.OnChat += Chat;
+        _chainController.OnChat += Chat;  
         _chainController.OnChatResults += ChatResults;
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
@@ -54,23 +54,13 @@ internal partial class ChatService : IDisposable
         
         _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
-        var previousNode = _chainController.Topology.PreviousNode;
         if (!TryConnectToNextNodeAutomatically().Result)
         {
             ConnectToNextNodeManuallyAsync().Wait();
         }
 
-        if (_chainController.Topology.NextNode?.Equals(_currentNode) == true)
-        {
-            previousNode = _currentNode;
-            _lastChatRequest = null;
-            _chainController.ChatInProgress = false;
-            _chainController.OnStartChat += StartChat;
-            Console.WriteLine("Game is stopped, you're the only one player");
-        }
-        
-        _chainController.Topology.PreviousNode = previousNode;
-        
+        SetNextNextNode(_chainController.Topology.PreviousNode!, _chainController.Topology.NextNode!).Wait();
+
         // disconnected node might be leader (or next next, or next next next...)
         ElectLeader();
 
@@ -155,13 +145,43 @@ internal partial class ChatService : IDisposable
 
             ConsoleHelper.WriteGreen($"Connected to node {connectResponse.Topology.NextNode.Name}");
 
+            var previousNode = _chainController.Topology.PreviousNode;
             _chainController.Topology = SingletonMapper.Map<Topology, AppTopology>(connectResponse.Topology);
+            _chainController.Topology.PreviousNode ??= previousNode;
 
             return true;
         }
         catch (Exception ex)
         {
             ConsoleHelper.WriteRed($"Failed ot connect to node {nextNode.Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> SetNextNextNode(AppNode recipientNode, AppNode nextNextNode)
+    {
+        try
+        {
+            ConsoleHelper.Debug($"Try to set next next {nextNextNode.Name} for node {recipientNode.Name}");
+
+            var recipientNodeClient = new ChainService.ChainServiceClient(recipientNode.Channel.Value);
+
+            var response = await recipientNodeClient.SetNextNextNodeAsync(
+                new SetNextNextNodeRequest { NextNextNode = SingletonMapper.Map<AppNode, Proto.Node>(nextNextNode) },
+            deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+
+            if (!response.IsOk)
+            { 
+                ConsoleHelper.Debug($"Failed to set next next {nextNextNode.Name} for node {recipientNode.Name}");
+                return false;
+            }
+
+            ConsoleHelper.Debug($"Successfully set next next {nextNextNode.Name} for node {recipientNode.Name}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ConsoleHelper.WriteRed($"Failed to set next next for node {recipientNode.Name} ({recipientNode}): {ex.Message}");
             return false;
         }
     }
@@ -212,7 +232,7 @@ internal partial class ChatService : IDisposable
             return;
         }
         
-        _chainController.OnStartChat -= StartChat;
+        //_chainController.OnStartChat -= StartChat;
 
         if (_chainController.ChatInProgress || !_currentNode.Equals(_chainController.Topology.Leader))
         {
@@ -265,7 +285,7 @@ internal partial class ChatService : IDisposable
         // do not wait
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
 
-        _chainController.OnStartChat += StartChat;
+        //_chainController.OnStartChat += StartChat;
 
         if (_currentNode.Equals(_chainController.Topology.Leader))
         {
