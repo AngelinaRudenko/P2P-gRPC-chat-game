@@ -104,10 +104,6 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             throw new Exception("Unknown connect to request state");
         }
 
-        if (Topology.PreviousNode?.Equals(Topology.NextNextNode) == true) // were three in circle but one is not alive
-        {
-            Topology.NextNextNode = _currentNode;
-        }
         Topology.PreviousNode = nodeWantsToConnect;
         
         ConsoleHelper.LogTopology(Topology);
