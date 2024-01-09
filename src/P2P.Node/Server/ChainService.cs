@@ -7,6 +7,8 @@ namespace P2P.Node.Server;
 
 internal class ChainService : Proto.ChainService.ChainServiceBase
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     private readonly TimeoutSettings _timeoutSettings;
 
     private readonly AppNode _currentNode;
@@ -37,7 +39,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         
         if (_currentNode.Equals(nodeWantsToConnect))
         {
-            ConsoleHelper.Debug("I am the first one and leader");
+            Logger.Debug("I am the first one and leader");
 
             // response will be returned to node itself
             previousNodeTopology.PreviousNode = _currentNode;
@@ -46,7 +48,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         }
         else if (_currentNode.Equals(Topology.NextNode))
         {
-            ConsoleHelper.Debug($"Node {nodeWantsToConnect.Name} wants to connect, allow since there is only one node in circle");
+            Logger.Debug($"Node {nodeWantsToConnect.Name} wants to connect, allow since there is only one node in circle");
             
             Topology.NextNode = nodeWantsToConnect;
             Topology.NextNextNode = _currentNode;
@@ -57,7 +59,9 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             previousNodeTopology.Leader = _currentNode;
 
             // do not await
+#pragma warning disable CS4014
             Task.Run(() => OnStartChat?.Invoke());
+#pragma warning restore CS4014
         }
         else if (Topology.PreviousNode != null)
         {
@@ -77,7 +81,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
                     throw new Exception($"Previous node {Topology.PreviousNode.Name} deny {nodeWantsToConnect.Name} to connect");
                 }
 
-                ConsoleHelper.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is disconnected from current");
+                Logger.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is disconnected from current");
 
                 // response for node that wants to connect
                 previousNodeTopology.PreviousNode = Topology.PreviousNode;
@@ -86,7 +90,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             }
             else
             {
-                ConsoleHelper.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is not alive");
+                Logger.Debug($"Allow node {nodeWantsToConnect.Name} to connect, previous node {Topology.PreviousNode.Name} is not alive");
 
                 // response for node that wants to connect
                 previousNodeTopology.PreviousNode = null; // previous node will leave its previous node the same
@@ -100,15 +104,15 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         }
 
         Topology.PreviousNode = nodeWantsToConnect;
-        
-        ConsoleHelper.LogTopology(Topology);
+
+        NLogHelper.LogTopology(Logger, Topology);
 
         return await Task.FromResult(new ConnectResponse { IsOk = true, Topology = SingletonMapper.Map<AppTopology, Topology>(previousNodeTopology) });
     }
 
     public override async Task<DisconnectResponse> Disconnect(DisconnectRequest request, ServerCallContext context)
     {
-        ConsoleHelper.Debug($"Disconnect from node {Topology.NextNode?.Name} and connect to node {request.ConnectToNode.Name}");
+        Logger.Debug($"Disconnect from node {Topology.NextNode?.Name} and connect to node {request.ConnectToNode.Name}");
 
         Topology.NextNextNode = Topology.NextNode;
         Topology.NextNode = SingletonMapper.Map<Proto.Node, AppNode>(request.ConnectToNode);
@@ -122,22 +126,22 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
                     new SetNextNextNodeRequest { NextNextNode = SingletonMapper.Map<AppNode, Proto.Node>(Topology.NextNode) },
                     deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
             }
-            catch
+            catch (Exception ex)
             {
-                ConsoleHelper.Debug($"Failed to set next node for previous node {Topology.PreviousNode}");
+                Logger.Error(ex, $"Failed to set next node for previous node {Topology.PreviousNode}");
             }
         }
 
-        ConsoleHelper.LogTopology(Topology);
+        NLogHelper.LogTopology(Logger, Topology);
 
         return await Task.FromResult(new DisconnectResponse { IsOk = true });
     }
 
     public override Task<SetNextNextNodeResponse> SetNextNextNode(SetNextNextNodeRequest request, ServerCallContext context)
     {
-        ConsoleHelper.Debug($"Set new next next {request.NextNextNode.Name} instead of {Topology.NextNextNode?.Name}");
+        Logger.Debug($"Set new next next {request.NextNextNode.Name} instead of {Topology.NextNextNode?.Name}");
         Topology.NextNextNode = SingletonMapper.Map<Proto.Node, AppNode>(request.NextNextNode);
-        ConsoleHelper.LogTopology(Topology);
+        NLogHelper.LogTopology(Logger, Topology);
 
         return Task.FromResult(new SetNextNextNodeResponse { IsOk = true });
     }
@@ -146,7 +150,7 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     {
         if (_electionLoopId.Equals(request.ElectionLoopId, StringComparison.InvariantCulture) == false)
         {
-            ConsoleHelper.Debug($"Start election loop {request.ElectionLoopId}");
+            Logger.Debug($"Start election loop {request.ElectionLoopId}");
             _electionLoopInProgress = true;
             _electionLoopId = request.ElectionLoopId;
             Task.Run(() => OnLeaderElection?.Invoke(request));
@@ -154,12 +158,12 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
         else if (_electionLoopInProgress)
         {
             // else - leader found, need to propagate
-            ConsoleHelper.WriteGreen($"Updating loop {request.ElectionLoopId} is finished");
+            Logger.Debug($"Updating loop {request.ElectionLoopId} is finished");
             Topology.Leader = SingletonMapper.Map<Proto.Node, AppNode>(request.LeaderNode);
             _electionLoopInProgress = false;
             Task.Run(() => OnLeaderElectionResult?.Invoke(request));
             Task.Run(() => OnStartChat?.Invoke());
-            ConsoleHelper.LogTopology(Topology);
+            NLogHelper.LogTopology(Logger, Topology);
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });

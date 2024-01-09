@@ -1,7 +1,7 @@
-﻿using System.ComponentModel.Design;
-using Google.Protobuf.WellKnownTypes;
+﻿using Google.Protobuf.WellKnownTypes;
 using Grpc.Net.Client;
 using P2P.Node.Configs;
+using P2P.Node.Helpers;
 using P2P.Node.Models;
 using Proto;
 
@@ -9,6 +9,8 @@ namespace P2P.Node.Services;
 
 internal partial class ChatService : IDisposable
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     private readonly AppNode _currentNode;
     private DateTime _startTimestamp;
 
@@ -32,7 +34,7 @@ internal partial class ChatService : IDisposable
     {
         await ConnectToNextNodeManuallyAsync();
 
-        ConsoleHelper.LogTopology(_chainController.Topology);
+        NLogHelper.LogTopology(Logger, _chainController.Topology);
 
         _chainController.OnLeaderElection += ElectLeader;
         _chainController.OnLeaderElectionResult += SendLeaderElectionRequest;
@@ -50,7 +52,7 @@ internal partial class ChatService : IDisposable
             return;
         }
 
-        ConsoleHelper.Debug("Next node is not alive");
+        Logger.Debug("Next node is not alive");
 
         _isNextNodeAliveTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
@@ -64,7 +66,7 @@ internal partial class ChatService : IDisposable
         // disconnected node might be leader (or next next, or next next next...)
         ElectLeader();
 
-        ConsoleHelper.LogTopology(_chainController.Topology);
+        NLogHelper.LogTopology(Logger, _chainController.Topology);
 
         if (_lastChatRequest != null)
         {
@@ -98,17 +100,20 @@ internal partial class ChatService : IDisposable
 
             try
             {
-                Console.WriteLine("Write host of the node you want to connect");
-                var host = Convert.ToString(Console.ReadLine());
-                //var host = _currentNode.Host;
-                Console.WriteLine("Write port of the node you want to connect");
-                var port = Convert.ToInt32(Console.ReadLine());
+                var host = ConsoleHelper.ReadFromConsoleUntilPredicate("Write host of the node you want to connect",
+                    input => string.IsNullOrEmpty(input) && !int.TryParse(input, out _))!.Trim();
+                 //var host = _currentNode.Host;
+
+                var portStr = ConsoleHelper.ReadFromConsoleUntilPredicate("Write port of the node you want to connect", 
+                    input => string.IsNullOrEmpty(input) && !int.TryParse(input, out _))!.Trim();
+
+                var port = Convert.ToInt32(portStr);
 
                 nextNode = new AppNode("unknown", host, port);
             }
             catch (Exception ex)
             {
-                ConsoleHelper.WriteRed($"Invalid input: {ex.Message}");
+                Logger.Error(ex, $"Invalid input: {ex.Message}");
                 continue;
             }
 
@@ -124,7 +129,7 @@ internal partial class ChatService : IDisposable
         if (_chainController.Topology.NextNextNode == null)
             return false;
 
-        ConsoleHelper.Debug($"Try to automatically connect to next next node {_chainController.Topology.NextNextNode.Name}");
+        Logger.Debug($"Try to automatically connect to next next node {_chainController.Topology.NextNextNode.Name}");
         return await TryConnectToNextNode(_chainController.Topology.NextNextNode);
     }
 
@@ -143,7 +148,7 @@ internal partial class ChatService : IDisposable
                 throw new Exception($"Failed to connect to node {nextNode}");
             }
 
-            ConsoleHelper.WriteGreen($"Connected to node {connectResponse.Topology.NextNode.Name}");
+            Logger.Info($"Connected to node {connectResponse.Topology.NextNode.Name}");
 
             var previousNode = _chainController.Topology.PreviousNode;
             _chainController.Topology = SingletonMapper.Map<Topology, AppTopology>(connectResponse.Topology);
@@ -153,7 +158,7 @@ internal partial class ChatService : IDisposable
         }
         catch (Exception ex)
         {
-            ConsoleHelper.WriteRed($"Failed ot connect to node {nextNode.Name}: {ex.Message}");
+            Logger.Error(ex, $"Failed ot connect to node {nextNode.Name}: {ex.Message}");
             return false;
         }
     }
@@ -162,7 +167,7 @@ internal partial class ChatService : IDisposable
     {
         try
         {
-            ConsoleHelper.Debug($"Try to set next next {nextNextNode.Name} for node {recipientNode.Name}");
+            Logger.Debug($"Try to set next next {nextNextNode.Name} for node {recipientNode.Name}");
 
             var recipientNodeClient = new ChainService.ChainServiceClient(recipientNode.Channel.Value);
 
@@ -172,16 +177,16 @@ internal partial class ChatService : IDisposable
 
             if (!response.IsOk)
             {
-                ConsoleHelper.Debug($"Failed to set next next {nextNextNode.Name} for node {recipientNode.Name}");
+                Logger.Debug($"Failed to set next next {nextNextNode.Name} for node {recipientNode.Name}");
                 return false;
             }
 
-            ConsoleHelper.Debug($"Successfully set next next {nextNextNode.Name} for node {recipientNode.Name}");
+            Logger.Debug($"Successfully set next next {nextNextNode.Name} for node {recipientNode.Name}");
             return true;
         }
         catch (Exception ex)
         {
-            ConsoleHelper.WriteRed($"Failed to set next next for node {recipientNode.Name} ({recipientNode}): {ex.Message}");
+            Logger.Error(ex, $"Failed to set next next for node {recipientNode.Name} ({recipientNode}): {ex.Message}");
             return false;
         }
     }
@@ -235,9 +240,8 @@ internal partial class ChatService : IDisposable
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
         }
-
-        Console.WriteLine("Start new game, write the message for the next player");
-        var input = Console.ReadLine();
+       
+        var input = ConsoleHelper.ReadFromConsoleUntilPredicate("Start new game, write the message for the next player", string.IsNullOrEmpty);
 
         _lastChatRequest = new ChatRequest
         {
@@ -265,23 +269,22 @@ internal partial class ChatService : IDisposable
 
             if (_lastChatRequest?.IsResultPropagation == true)
             {
-                ConsoleHelper.Debug("Propagation loop finished, elect new leader");
+                Logger.Debug("Propagation loop finished, elect new leader");
                 // current node was the one who started propagation loop
                 ElectLeader(); // next leader will be the one, who connected after the current leader
             }
             else
             {
-                ConsoleHelper.Debug("Propagate results");
-                Console.WriteLine("Chat results:");
-                Console.WriteLine(request.MessageChain);
+                Logger.Debug("Propagate results");
+                Logger.Info("Chat results:");
+                Logger.Info(request.MessageChain);
 
                 SendChatRequest(request);
             }
         }
         else
         {
-            Console.WriteLine($"Previous player said '{request.Message}'. Write message to next player:");
-            var input = Console.ReadLine();
+            var input = ConsoleHelper.ReadFromConsoleUntilPredicate($"Previous player said '{request.Message}'. Write message to next player:", string.IsNullOrEmpty);
 
             request.Message = input;
             request.MessageChain = $"{request.MessageChain}\n{_currentNode.Name}: {input}";

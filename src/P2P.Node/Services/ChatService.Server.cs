@@ -22,11 +22,11 @@ internal partial class ChatService
             };
 
             _server.Start();
-            ConsoleHelper.Debug($"Server is listening on http://{_currentNode.Host}:{_currentNode.Port}");
+            Logger.Debug($"Server is listening on http://{_currentNode.Host}:{_currentNode.Port}");
         }
-        catch (IOException e)
+        catch (IOException ex)
         {
-            ConsoleHelper.WriteRed($"Server failed to start: {e.Message}");
+            Logger.Error(ex, $"Server failed to start: {ex.Message}");
             await StopServerAsync();
             throw;
         }
@@ -36,7 +36,7 @@ internal partial class ChatService
     {
         if (_server != null)
         {
-            ConsoleHelper.Debug("Server shutdown");
+            Logger.Debug("Server shutdown");
             await _server.ShutdownAsync();
             _server = null;
         }

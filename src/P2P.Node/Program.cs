@@ -2,14 +2,23 @@
 using P2P.Node.Models;
 using System.Net.Sockets;
 using System.Net;
+using P2P.Node.Configs;
+using P2P.Node.Helpers;
 using ChatService = P2P.Node.Services.ChatService;
 
 namespace P2P.Node;
 
 internal class Program
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     static async Task Main(string[] args)
     {
+       var nodeName = ConsoleHelper.ReadFromConsoleUntilPredicate("What is your username?", string.IsNullOrEmpty)!.Trim();
+
+        // I need node name to configure log file name. In case if on the same PC I will run multiple nodoes.
+        NLogHelper.ConfigureNLog(nodeName);
+
         // Build a config object, using env vars and JSON providers.
         var config = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
@@ -20,39 +29,40 @@ internal class Program
         var settings = config.GetRequiredSection(nameof(Settings)).Get<Settings>() ??
                        throw new Exception("Configuration couldn't load");
 
-        Console.WriteLine("What is your username?");
-        var name = Console.ReadLine();
-
         string? host = null;
         try
         {
             var localhost = await Dns.GetHostEntryAsync(Dns.GetHostName());
             foreach (var ip in localhost.AddressList.Where(x => x.AddressFamily == AddressFamily.InterNetwork))
             {
-                Console.WriteLine($"Do you want to use host {ip}? y/n");
-                var answer = Console.ReadLine();
-                if ("y".Equals(answer, StringComparison.InvariantCultureIgnoreCase))
+                var answer = ConsoleHelper.ReadFromConsoleUntilPredicate($"Do you want to use host {ip}? y/n", input => string.IsNullOrEmpty(input) ||
+                    (!input.Equals("y", StringComparison.InvariantCultureIgnoreCase) &&
+                    !input.Equals("n", StringComparison.InvariantCultureIgnoreCase)));
+                
+                if (answer?.Equals("y", StringComparison.InvariantCultureIgnoreCase) == true)
                 {
                     host = ip.ToString();
                     break;
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            Logger.Error(ex, "Error was thrown when tried to find available IPs");
         }
 
-        if (host == null)
+        if (string.IsNullOrEmpty(host))
         {
-            Console.WriteLine("Write your node host");
-            host = Convert.ToString(Console.ReadLine());
+            host = ConsoleHelper.ReadFromConsoleUntilPredicate("What is your host?",
+                input => string.IsNullOrEmpty(input) && !int.TryParse(input, out _))!.Trim();
         }
 
-        Console.WriteLine("Write your node port");
-        var port = Convert.ToInt32(Console.ReadLine());
+        var portStr = ConsoleHelper.ReadFromConsoleUntilPredicate("What is your port?", input => string.IsNullOrEmpty(input) && !int.TryParse(input, out _))!.Trim();
+        var port = Convert.ToInt32(portStr);
 
-        var chatService = new ChatService(new AppNode(name, host, port), settings);
+        Logger.Info($"Start node {nodeName} {host}:{port}");
+
+        var chatService = new ChatService(new AppNode(nodeName, host, port), settings);
         await chatService.StartServerAsync();
         await chatService.StartClientAsync();
 
