@@ -13,14 +13,14 @@ internal static class ConsoleHelper
 
     internal static void WriteRed(string message)
     {
-        Console.ForegroundColor = ConsoleColor.DarkRed;
+        Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine(message);
         Console.ResetColor();
     }
 
     internal static void Debug(string message)
     {
-        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.ForegroundColor = ConsoleColor.Gray;
         Console.WriteLine(message);
         Console.ResetColor();
     }

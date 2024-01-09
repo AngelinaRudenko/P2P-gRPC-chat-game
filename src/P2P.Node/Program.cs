@@ -24,14 +24,18 @@ internal class Program
         var name = Console.ReadLine();
 
         string? host = null;
-        int? port = 7654;
         try
         {
             var localhost = await Dns.GetHostEntryAsync(Dns.GetHostName());
-            var ip = localhost.AddressList.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork);
-            if (ip != null)
+            foreach (var ip in localhost.AddressList.Where(x => x.AddressFamily == AddressFamily.InterNetwork))
             {
-                host = ip.ToString();
+                Console.WriteLine($"Do you want to use host {ip}? y/n");
+                var answer = Console.ReadLine();
+                if ("y".Equals(answer, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    host = ip.ToString();
+                    break;
+                }
             }
         }
         catch
@@ -43,14 +47,12 @@ internal class Program
         {
             Console.WriteLine("Write your node host");
             host = Convert.ToString(Console.ReadLine());
-            //Console.WriteLine("Write your node port");
-            //port = Convert.ToInt32(Console.ReadLine());
         }
 
         Console.WriteLine("Write your node port");
-        port = Convert.ToInt32(Console.ReadLine());
+        var port = Convert.ToInt32(Console.ReadLine());
 
-        var chatService = new ChatService(new AppNode(name, host, port.Value), settings);
+        var chatService = new ChatService(new AppNode(name, host, port), settings);
         await chatService.StartServerAsync();
         await chatService.StartClientAsync();
 

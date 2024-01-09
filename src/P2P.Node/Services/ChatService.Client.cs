@@ -98,9 +98,9 @@ internal partial class ChatService : IDisposable
 
             try
             {
-                //Console.WriteLine("Write host of the node you want to connect");
-                //var host = Convert.ToString(Console.ReadLine());
-                var host = _currentNode.Host;
+                Console.WriteLine("Write host of the node you want to connect");
+                var host = Convert.ToString(Console.ReadLine());
+                //var host = _currentNode.Host;
                 Console.WriteLine("Write port of the node you want to connect");
                 var port = Convert.ToInt32(Console.ReadLine());
 
