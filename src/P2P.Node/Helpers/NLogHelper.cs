@@ -1,7 +1,7 @@
 ﻿using NLog;
 using P2P.Node.Models;
 
-namespace P2P.Node.Configs;
+namespace P2P.Node.Helpers;
 
 public class NLogHelper
 {
