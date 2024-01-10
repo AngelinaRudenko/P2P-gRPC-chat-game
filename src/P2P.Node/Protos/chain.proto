@@ -6,6 +6,13 @@ option csharp_namespace = "Proto";
 
 package chain;
 
+enum ChatStatus {
+	Unknown = 0;
+	InProgress = 1;
+	Propagation = 2;
+	Finished = 3;
+}
+
 message Node {
 	string host = 1;
 	int32 port = 2;
@@ -50,7 +57,7 @@ message ChatRequest {
 	string chatId = 2;
 	string message = 3;
 	string messageChain = 4;
-	bool isResultPropagation = 5;
+	ChatStatus chatStatus = 5;
 }
 
 message ChatResponse {

@@ -68,7 +68,7 @@ internal partial class ChatService : IDisposable
 
         NLogHelper.LogTopology(Logger, _chainController.Topology);
 
-        if (_lastChatRequest != null)
+        if (_lastChatRequest != null && _lastChatRequest.ChatStatus != ChatStatus.Finished)
         {
             var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode!.Channel.Value);
             // resend message, do not wait
@@ -235,7 +235,7 @@ internal partial class ChatService : IDisposable
             return;
         }
 
-        if (_lastChatRequest?.IsResultPropagation == false || !_currentNode.Equals(_chainController.Topology.Leader))
+        if (_lastChatRequest?.ChatStatus == ChatStatus.InProgress || !_currentNode.Equals(_chainController.Topology.Leader))
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
@@ -248,7 +248,7 @@ internal partial class ChatService : IDisposable
             ChatId = Guid.NewGuid().ToString(),
             Message = input,
             MessageChain = $"{_currentNode.Name}: {input}",
-            IsResultPropagation = false
+            ChatStatus = ChatStatus.InProgress
         };
 
         Logger.Info($"Start new game with ChatId: {_lastChatRequest.ChatId}");
@@ -257,19 +257,19 @@ internal partial class ChatService : IDisposable
 
     public void Chat(ChatRequest request)
     {
-        var isResultPropagation = request.IsResultPropagation || request.ChatId.Equals(_lastChatRequest?.ChatId);
-        Logger.Trace($"Received request with ChatId: {request.ChatId} and IsResultPropagation flag {request.IsResultPropagation}. Last request ChatId {_lastChatRequest?.ChatId}.");
+        var isResultPropagation = request.ChatStatus == ChatStatus.Propagation || request.ChatId.Equals(_lastChatRequest?.ChatId);
+        Logger.Trace($"Received request with ChatId: {request.ChatId} and status {request.ChatStatus}. Last request ChatId {_lastChatRequest?.ChatId}.");
 
         if (isResultPropagation)
         {
-            request.IsResultPropagation = true;
+            request.ChatStatus = ChatStatus.Propagation;
 
             if (_currentNode.Equals(_chainController.Topology.Leader))
             {
                 _startTimestamp = DateTime.UtcNow; // put to the end of the front
             }
 
-            if (_lastChatRequest?.IsResultPropagation == true)
+            if (_lastChatRequest?.ChatStatus == ChatStatus.Propagation)
             {
                 Logger.Debug("Propagation loop finished, elect new leader");
                 // current node was the one who started propagation loop
@@ -291,6 +291,8 @@ internal partial class ChatService : IDisposable
             request.MessageChain = $"{request.MessageChain}\n{_currentNode.Name}: {input}";
 
             SendChatRequest(request);
+
+            request.ChatStatus = ChatStatus.Finished;
         }
 
         _lastChatRequest = request;
