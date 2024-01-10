@@ -70,9 +70,8 @@ internal partial class ChatService : IDisposable
 
         if (_lastChatRequest != null && _lastChatRequest.ChatStatus != ChatStatus.Finished)
         {
-            var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode!.Channel.Value);
-            // resend message, do not wait
-            client.ChatAsync(_lastChatRequest, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
+            Logger.Debug("Resend last message again");
+            SendChatRequest(_lastChatRequest); // resend message
         }
 
         _isNextNodeAliveTimer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(_timeoutSettings.IsAliveTimerPeriod));
@@ -262,8 +261,6 @@ internal partial class ChatService : IDisposable
 
         if (isResultPropagation)
         {
-            request.ChatStatus = ChatStatus.Propagation;
-
             if (_currentNode.Equals(_chainController.Topology.Leader))
             {
                 _startTimestamp = DateTime.UtcNow; // put to the end of the front
@@ -271,12 +268,14 @@ internal partial class ChatService : IDisposable
 
             if (_lastChatRequest?.ChatStatus == ChatStatus.Propagation)
             {
+                request.ChatStatus = ChatStatus.Finished;
                 Logger.Debug("Propagation loop finished, elect new leader");
                 // current node was the one who started propagation loop
                 ElectLeader(); // next leader will be the one, who connected after the current leader
             }
             else
             {
+                request.ChatStatus = ChatStatus.Propagation;
                 Logger.Debug("Propagate results");
                 Logger.Info($"Chat results:\n{request.MessageChain}");
 
@@ -291,8 +290,6 @@ internal partial class ChatService : IDisposable
             request.MessageChain = $"{request.MessageChain}\n{_currentNode.Name}: {input}";
 
             SendChatRequest(request);
-
-            request.ChatStatus = ChatStatus.Finished;
         }
 
         _lastChatRequest = request;
@@ -300,6 +297,7 @@ internal partial class ChatService : IDisposable
 
     private void SendChatRequest(ChatRequest request)
     {
+        Logger.Trace($"Send request {_lastChatRequest} with status {_lastChatRequest?.ChatStatus} to node {_chainController.Topology.NextNode}");
         // do not wait
         var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
