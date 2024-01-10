@@ -240,7 +240,7 @@ internal partial class ChatService : IDisposable
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
         }
-       
+
         var input = ConsoleHelper.ReadFromConsoleUntilPredicate("Start new game, write the message for the next player", string.IsNullOrEmpty);
 
         _lastChatRequest = new ChatRequest
@@ -251,12 +251,14 @@ internal partial class ChatService : IDisposable
             IsResultPropagation = false
         };
 
+        Logger.Info($"Start new game with ChatId: {_lastChatRequest.ChatId}");
         SendChatRequest(_lastChatRequest);
     }
 
     public void Chat(ChatRequest request)
     {
         var isResultPropagation = request.IsResultPropagation || request.ChatId.Equals(_lastChatRequest?.ChatId);
+        Logger.Trace($"Received request with ChatId: {request.ChatId} and IsResultPropagation flag {request.IsResultPropagation}. Last request ChatId {_lastChatRequest?.ChatId}.");
 
         if (isResultPropagation)
         {
@@ -276,8 +278,7 @@ internal partial class ChatService : IDisposable
             else
             {
                 Logger.Debug("Propagate results");
-                Logger.Info("Chat results:");
-                Logger.Info(request.MessageChain);
+                Logger.Info($"Chat results:\n{request.MessageChain}");
 
                 SendChatRequest(request);
             }
