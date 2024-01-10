@@ -18,6 +18,7 @@ internal partial class ChatService : IDisposable
 
     private readonly Timer _isNextNodeAliveTimer;
     private ChatRequest? _lastChatRequest;
+    private bool _typingMessage;
 
     public ChatService(AppNode currentNode, Settings settings)
     {
@@ -234,11 +235,13 @@ internal partial class ChatService : IDisposable
             return;
         }
 
-        if (_lastChatRequest != null && (_lastChatRequest?.ChatStatus != ChatStatus.Propagation || !_currentNode.Equals(_chainController.Topology.Leader)))
+        if (_lastChatRequest != null && !_typingMessage && (_lastChatRequest?.ChatStatus != ChatStatus.Propagation || !_currentNode.Equals(_chainController.Topology.Leader)))
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
         }
+
+        _typingMessage = true;
 
         var input = ConsoleHelper.ReadFromConsoleUntilPredicate("Start new game, write the message for the next player", string.IsNullOrEmpty);
 
@@ -252,10 +255,17 @@ internal partial class ChatService : IDisposable
 
         Logger.Info($"Start new game with ChatId: {_lastChatRequest.ChatId}");
         SendChatRequest(_lastChatRequest);
+        _typingMessage = false;
     }
 
     public void Chat(ChatRequest request)
     {
+        if (_typingMessage)
+        {
+            Logger.Debug("Already typing for other game, skip received mesasge");
+            return;
+        }
+
         var isResultPropagation = request.ChatStatus == ChatStatus.Propagation || request.ChatId.Equals(_lastChatRequest?.ChatId);
         Logger.Trace($"Received request with ChatId: {request.ChatId} and status {request.ChatStatus}. Last request ChatId {_lastChatRequest?.ChatId}.");
 
@@ -292,6 +302,7 @@ internal partial class ChatService : IDisposable
         }
 
         _lastChatRequest = request;
+        _typingMessage = false;
     }
 
     private void SendChatRequest(ChatRequest request)
