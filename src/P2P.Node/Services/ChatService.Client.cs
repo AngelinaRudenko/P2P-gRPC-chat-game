@@ -68,7 +68,7 @@ internal partial class ChatService : IDisposable
 
         NLogHelper.LogTopology(Logger, _chainController.Topology);
 
-        if (_lastChatRequest != null && _lastChatRequest.ChatStatus != ChatStatus.Finished)
+        if (_lastChatRequest != null)
         {
             Logger.Debug("Resend last message again");
             SendChatRequest(_lastChatRequest); // resend message
@@ -217,7 +217,7 @@ internal partial class ChatService : IDisposable
     public void SendLeaderElectionRequest(LeaderElectionRequest request)
     {
         // do not wait
-        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
+        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode!.Channel.Value);
         client.ElectLeaderAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 
@@ -234,7 +234,7 @@ internal partial class ChatService : IDisposable
             return;
         }
 
-        if (_lastChatRequest?.ChatStatus == ChatStatus.InProgress || !_currentNode.Equals(_chainController.Topology.Leader))
+        if (_lastChatRequest != null && (_lastChatRequest?.ChatStatus != ChatStatus.Propagation || !_currentNode.Equals(_chainController.Topology.Leader)))
         {
             Console.WriteLine("Game is in progress, wait for your turn");
             return;
@@ -268,7 +268,6 @@ internal partial class ChatService : IDisposable
 
             if (_lastChatRequest?.ChatStatus == ChatStatus.Propagation)
             {
-                request.ChatStatus = ChatStatus.Finished;
                 Logger.Debug("Propagation loop finished, elect new leader");
                 // current node was the one who started propagation loop
                 ElectLeader(); // next leader will be the one, who connected after the current leader
@@ -297,9 +296,9 @@ internal partial class ChatService : IDisposable
 
     private void SendChatRequest(ChatRequest request)
     {
-        Logger.Trace($"Send request {_lastChatRequest} with status {_lastChatRequest?.ChatStatus} to node {_chainController.Topology.NextNode}");
+        Logger.Trace($"Send request {_lastChatRequest} to node {_chainController.Topology.NextNode?.Name}");
         // do not wait
-        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode.Channel.Value);
+        var client = new ChainService.ChainServiceClient(_chainController.Topology.NextNode!.Channel.Value);
         client.ChatAsync(request, deadline: DateTime.UtcNow.AddSeconds(_timeoutSettings.CommonRequestTimeout));
     }
 

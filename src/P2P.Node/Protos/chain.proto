@@ -10,7 +10,6 @@ enum ChatStatus {
 	Unknown = 0;
 	InProgress = 1;
 	Propagation = 2;
-	Finished = 3;
 }
 
 message Node {
