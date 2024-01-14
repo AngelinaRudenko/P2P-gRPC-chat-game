@@ -13,8 +13,8 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
     private readonly TimeoutSettings _timeoutSettings;
 
     private readonly AppNode _currentNode;
-    private string _electionLoopId = string.Empty;
-    private bool _electionLoopInProgress;
+    public int ElectionLoopId { get; set; }
+    public int LastFinishedElectionLoopId { get; set; }
 
     public delegate void LeaderElectionHandler(LeaderElectionRequest request);
     public event LeaderElectionHandler? OnLeaderElection;
@@ -108,7 +108,13 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
         NLogHelper.LogTopology(Logger, Topology);
 
-        return await Task.FromResult(new ConnectResponse { IsOk = true, Topology = SingletonMapper.Map<AppTopology, Topology>(previousNodeTopology) });
+        return await Task.FromResult(
+            new ConnectResponse 
+            { 
+                IsOk = true, 
+                Topology = SingletonMapper.Map<AppTopology, Topology>(previousNodeTopology), 
+                LastFinishedElectionLoopId = LastFinishedElectionLoopId
+            });
     }
 
     public override async Task<DisconnectResponse> Disconnect(DisconnectRequest request, ServerCallContext context)
@@ -149,25 +155,29 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
 
     public override Task<LeaderElectionResponse> ElectLeader(LeaderElectionRequest request, ServerCallContext context)
     {
-        if (_electionLoopId.Equals(request.ElectionLoopId, StringComparison.InvariantCulture) == false)
+        if (request.ElectionLoopId == ElectionLoopId + 1)
         {
-            Logger.Debug($"Start election loop {request.ElectionLoopId}");
-            _electionLoopInProgress = true;
-            _electionLoopId = request.ElectionLoopId;
+            // new election process
+            Logger.Debug($"Leader election loop {request.ElectionLoopId} is in progress");
+            ElectionLoopId = request.ElectionLoopId;
             Task.Run(() => OnLeaderElection?.Invoke(request));
         }
-        else if (_electionLoopInProgress)
+        else if (request.ElectionLoopId == ElectionLoopId && LastFinishedElectionLoopId != request.ElectionLoopId)
         {
-            // else - leader found, need to propagate
-            Logger.Debug($"Updating loop {request.ElectionLoopId} is finished");
+            // leader found, need to propagate
+            Logger.Debug($"Leader election loop {request.ElectionLoopId} is finishing");
             Topology.Leader = SingletonMapper.Map<Proto.Node, AppNode>(request.LeaderNode);
-            _electionLoopInProgress = false;
+            LastFinishedElectionLoopId = request.ElectionLoopId;
             Task.Run(() =>
             {
                 OnLeaderElectionResult?.Invoke(request);
+                NLogHelper.LogTopology(Logger, Topology);
                 OnStartChat?.Invoke();
             });
-            NLogHelper.LogTopology(Logger, Topology);
+        }
+        else
+        {
+            Logger.Debug($"Stop leader election loop {request.ElectionLoopId}");
         }
 
         return Task.FromResult(new LeaderElectionResponse { IsOk = true });
