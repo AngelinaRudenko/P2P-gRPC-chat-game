@@ -178,6 +178,8 @@ internal partial class ChatService : IDisposable
             var previousNode = _chainController.Topology.PreviousNode;
             _chainController.Topology = SingletonMapper.Map<Topology, AppTopology>(connectResponse.Topology);
             _chainController.Topology.PreviousNode ??= previousNode;
+            _chainController.ElectionLoopId = connectResponse.LastFinishedElectionLoopId;
+            _chainController.LastFinishedElectionLoopId = connectResponse.LastFinishedElectionLoopId;
 
             return true;
         }
@@ -220,9 +222,11 @@ internal partial class ChatService : IDisposable
 
     public async Task ElectLeaderAsync()
     {
+        _chainController.ElectionLoopId += 1;
+        Logger.Debug($"Start leader election loop {_chainController.ElectionLoopId}");
         await ElectLeaderAsync(new LeaderElectionRequest
         {
-            ElectionLoopId = Guid.NewGuid().ToString(),
+            ElectionLoopId = _chainController.ElectionLoopId,
             LeaderNode = SingletonMapper.Map<AppNode, Proto.Node>(_currentNode),
             LeaderConnectionTimestamp = Timestamp.FromDateTime(_startTimestamp)
         });

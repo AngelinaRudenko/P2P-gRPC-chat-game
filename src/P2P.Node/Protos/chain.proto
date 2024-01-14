@@ -32,6 +32,7 @@ message ConnectRequest {
 message ConnectResponse {
 	bool isOk = 1; // true if requesting node can connect, false if other node already connected
 	Topology topology = 2;
+	int32 lastFinishedElectionLoopId = 3;
 }
 
 message DisconnectRequest {
@@ -44,7 +45,7 @@ message DisconnectResponse {
 
 message LeaderElectionRequest {
 	Node leaderNode = 1;
-	string electionLoopId = 2;
+	int32 electionLoopId = 2;
 	google.protobuf.Timestamp leaderConnectionTimestamp = 3;
 }
 
