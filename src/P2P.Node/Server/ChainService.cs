@@ -162,8 +162,11 @@ internal class ChainService : Proto.ChainService.ChainServiceBase
             Logger.Debug($"Updating loop {request.ElectionLoopId} is finished");
             Topology.Leader = SingletonMapper.Map<Proto.Node, AppNode>(request.LeaderNode);
             _electionLoopInProgress = false;
-            Task.Run(() => OnLeaderElectionResult?.Invoke(request));
-            Task.Run(() => OnStartChat?.Invoke());
+            Task.Run(() =>
+            {
+                OnLeaderElectionResult?.Invoke(request);
+                OnStartChat?.Invoke();
+            });
             NLogHelper.LogTopology(Logger, Topology);
         }
 
